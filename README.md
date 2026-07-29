@@ -37,23 +37,28 @@ Parents register from the Sign in page, then link a student by email.
 4. Admin can still confirm manual payments on **/admin**
 5. Slot shades as booked; student account is created; teacher is notified
 
-## Database setup (Hostinger)
+## Database setup (Hostinger + Vercel)
 
-1. In Hostinger hPanel create MySQL database + user
-2. Copy host, db name, username, password
-3. Set `.env.local`:
+`localhost` works only for apps running **on Hostinger**. Vercel and your PC need the **Remote MySQL** hostname.
+
+1. In hPanel create MySQL database + user
+2. Open **Remote MySQL** → enable **Any Host** (`%`) for your DB → **Create**
+3. Copy the **MySQL hostname** shown at the top of that page (not `localhost`)
+4. Set `.env.local` (URL-encode special chars in the password, e.g. `@` → `%40`):
 
 ```env
-DATABASE_URL="mysql://USER:PASSWORD@HOST:3306/DB_NAME"
+DATABASE_URL="mysql://USER:PASSWORD@REMOTE_HOSTNAME:3306/DB_NAME"
 ```
 
-4. Generate and push schema:
+5. Generate and push schema:
 
 ```bash
 npm run prisma:generate
 npm run db:push
 npm run db:seed
 ```
+
+Use the same `DATABASE_URL` in Vercel → Project → Settings → Environment Variables.
 
 ## Media upload (Vercel Blob)
 
