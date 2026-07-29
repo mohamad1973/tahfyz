@@ -1,36 +1,80 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Tahfyz
 
-## Getting Started
+Online Quran academy for international students with Egyptian teachers.
 
-First, run the development server:
+## Stack
+
+- Next.js (App Router) + TypeScript + Tailwind
+- Prisma + MySQL (Hostinger)
+- Vercel Blob for teacher media uploads (photo/audio/video)
+
+## Run locally
 
 ```bash
+npm install
+npm run prisma:generate
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Demo accounts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Role | Email | Password |
+|------|-------|----------|
+| Academy admin | admin@tahfyz.com | admin123 |
+| Teacher (×8) | ahmed@ / ibrahim@ / omar@ / yusuf@ / khaled@ / mostafa@ / abdelrahman@ / hassan@tahfyz.com | teacher123 |
 
-## Learn More
+Student accounts are created automatically when admin confirms payment on a guest booking.
 
-To learn more about Next.js, take a look at the following resources:
+Parents register from the Sign in page, then link a student by email.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Booking flow
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Guest opens **/teachers**, picks a calendar hour, submits guest details
+2. Continues to **/booking/[id]/pay** — pay by **card (demo)** or academy WhatsApp
+3. With `STRIPE_SECRET_KEY` set, card uses real Stripe Checkout; otherwise demo confirms instantly
+4. Admin can still confirm manual payments on **/admin**
+5. Slot shades as booked; student account is created; teacher is notified
 
-## Deploy on Vercel
+## Database setup (Hostinger)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. In Hostinger hPanel create MySQL database + user
+2. Copy host, db name, username, password
+3. Set `.env.local`:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```env
+DATABASE_URL="mysql://USER:PASSWORD@HOST:3306/DB_NAME"
+```
+
+4. Generate and push schema:
+
+```bash
+npm run prisma:generate
+npm run db:push
+npm run db:seed
+```
+
+## Media upload (Vercel Blob)
+
+1. Create a Blob Store in Vercel project
+2. Add `BLOB_READ_WRITE_TOKEN` to `.env.local` and Vercel env vars
+3. Teacher dashboard uploads now store URLs in DB and files in Blob
+
+## Deploy (Vercel + tahfyz domain)
+
+1. Push repo to GitHub
+2. Import in Vercel
+3. Add env vars:
+   - `DATABASE_URL`
+   - `BLOB_READ_WRITE_TOKEN`
+   - `NEXT_PUBLIC_APP_URL`
+   - `NEXT_PUBLIC_ACADEMY_WHATSAPP`
+   - Stripe keys (optional)
+4. Build command: `npm run build`
+5. (once) Run `npm run db:push` and `npm run db:seed` against production DB
+6. Attach domain `tahfyz.com` (or your custom tahfyz domain)
+
+## Brand
+
+**Tahfyz** — Quran & sciences for students in the US and Europe.

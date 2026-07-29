@@ -1,0 +1,138 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  admin
+  teacher
+  student
+  parent
+}
+
+enum BookingStatus {
+  pending_payment
+  confirmed
+  cancelled
+  expired
+}
+
+enum PaymentMethod {
+  manual
+  card
+}
+
+enum TeacherMediaKind {
+  video
+  audio
+}
+
+model User {
+  id               String              @id
+  email            String              @unique
+  passwordHash     String
+  name             String
+  role             Role
+  phone            String?
+  whatsapp         String?
+  teacherId        String?
+  mustSetPassword  Boolean             @default(false)
+  createdAt        DateTime            @default(now())
+  notifications    Notification[]
+  parentLinks      ParentStudentLink[] @relation("parentLinks")
+  studentLinks     ParentStudentLink[] @relation("studentLinks")
+  bookingsAsStudent Booking[]          @relation("bookingsStudent")
+}
+
+model Teacher {
+  id           String             @id
+  name         String
+  nameAr       String
+  photoUrl     String
+  bio          String
+  bioAr        String
+  subjects     Json
+  active       Boolean            @default(true)
+  userId       String?            @unique
+  priceUsd     Int                @default(25)
+  availability TeacherAvailability[]
+  bookings     Booking[]
+  media        TeacherMedia[]
+}
+
+model TeacherAvailability {
+  id        String  @id
+  teacherId String
+  dayOfWeek Int
+  startHour Int
+  endHour   Int
+  teacher   Teacher @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@index([teacherId])
+}
+
+model Booking {
+  id            String         @id
+  teacherId     String
+  slotStart     DateTime
+  slotEnd       DateTime
+  guestName     String
+  guestEmail    String
+  phone         String
+  whatsapp      String
+  timezone      String
+  notes         String?
+  status        BookingStatus  @default(pending_payment)
+  holdExpiresAt DateTime
+  studentId     String?
+  createdAt     DateTime       @default(now())
+  confirmedAt   DateTime?
+  amountUsd     Int
+  paymentMethod PaymentMethod?
+  paidAt        DateTime?
+  teacher       Teacher        @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  student       User?          @relation("bookingsStudent", fields: [studentId], references: [id])
+  notifications Notification[]
+
+  @@index([teacherId, slotStart, slotEnd])
+}
+
+model Notification {
+  id        String   @id
+  userId    String
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  bookingId String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+}
+
+model ParentStudentLink {
+  id        String @id
+  parentId  String
+  studentId String
+  parent    User   @relation("parentLinks", fields: [parentId], references: [id], onDelete: Cascade)
+  student   User   @relation("studentLinks", fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([parentId, studentId])
+}
+
+model TeacherMedia {
+  id        String           @id
+  teacherId String
+  kind      TeacherMediaKind
+  title     String
+  url       String
+  createdAt DateTime         @default(now())
+  teacher   Teacher          @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@index([teacherId, kind])
+}
