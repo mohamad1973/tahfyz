@@ -44,11 +44,11 @@ export default function LoginPage() {
             className="space-y-3"
           >
             <label className="block text-sm">
-              <span className="mb-1 block font-medium">Email</span>
+              <span className="mb-1 block font-medium">Username</span>
               <input
-                name="email"
-                type="email"
+                name="username"
                 required
+                autoComplete="username"
                 className="w-full rounded-xl border border-line bg-bg px-3 py-2"
               />
             </label>
@@ -70,8 +70,8 @@ export default function LoginPage() {
               {pending ? "Signing in…" : "Sign in"}
             </button>
             <p className="text-xs text-ink-muted leading-relaxed">
-              Demo: admin@tahfyz.com / admin123 · teachers: ahmed@tahfyz.com /
-              teacher123 (and 7 more @tahfyz.com)
+              Demo: admin / admin123 · teachers: ahmed / teacher123 (also
+              ibrahim, omar, …)
             </p>
           </form>
         ) : (
@@ -94,11 +94,19 @@ export default function LoginPage() {
               />
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium">Email</span>
+              <span className="mb-1 block font-medium">Username</span>
+              <input
+                name="username"
+                required
+                pattern="[a-zA-Z0-9_]{3,32}"
+                className="w-full rounded-xl border border-line bg-bg px-3 py-2"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">Email (optional)</span>
               <input
                 name="email"
                 type="email"
-                required
                 className="w-full rounded-xl border border-line bg-bg px-3 py-2"
               />
             </label>

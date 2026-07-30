@@ -1,7 +1,7 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { getUserById } from "@/lib/store";
+import { getTeacher, getUserById } from "@/lib/store";
 
 type UploadKind = "photo" | "video" | "audio";
 
@@ -36,22 +36,17 @@ export async function POST(request: Request): Promise<NextResponse> {
         if (!session) throw new Error("Not authenticated");
 
         const user = await getUserById(session.userId);
-        if (!user || user.role !== "teacher" || !user.teacherId) {
-          throw new Error("Not authorized");
-        }
-
-        const prefix = `teachers/${user.teacherId}/`;
-        if (!pathname.startsWith(prefix)) {
-          throw new Error("Invalid upload path");
-        }
+        if (!user) throw new Error("Not authenticated");
 
         let kind: UploadKind = "photo";
         let title = "Untitled";
+        let requestedTeacherId: string | undefined;
         if (clientPayload) {
           try {
             const parsed = JSON.parse(clientPayload) as {
               kind?: string;
               title?: string;
+              teacherId?: string;
             };
             if (
               parsed.kind === "photo" ||
@@ -61,11 +56,31 @@ export async function POST(request: Request): Promise<NextResponse> {
               kind = parsed.kind;
             }
             if (parsed.title?.trim()) title = parsed.title.trim();
+            if (parsed.teacherId) requestedTeacherId = parsed.teacherId;
           } catch {
             throw new Error("Invalid upload payload");
           }
         }
 
+        let teacherId: string;
+        if (user.role === "admin") {
+          teacherId = requestedTeacherId || "";
+          if (!teacherId || !(await getTeacher(teacherId))) {
+            throw new Error("Teacher not found");
+          }
+        } else if (user.role === "teacher" && user.teacherId) {
+          teacherId = user.teacherId;
+          if (requestedTeacherId && requestedTeacherId !== teacherId) {
+            throw new Error("Not authorized");
+          }
+        } else {
+          throw new Error("Not authorized");
+        }
+
+        const prefix = `teachers/${teacherId}/`;
+        if (!pathname.startsWith(prefix)) {
+          throw new Error("Invalid upload path");
+        }
         if (!pathname.includes(`/${kind}-`)) {
           throw new Error("Path does not match media kind");
         }
@@ -74,14 +89,9 @@ export async function POST(request: Request): Promise<NextResponse> {
           allowedContentTypes: CONTENT_TYPES[kind],
           maximumSizeInBytes: MAX_BYTES[kind],
           addRandomSuffix: true,
-          tokenPayload: JSON.stringify({
-            teacherId: user.teacherId,
-            kind,
-            title,
-          }),
+          tokenPayload: JSON.stringify({ teacherId, kind, title }),
         };
       },
-      // DB updates happen from the client via server actions (works locally too).
       onUploadCompleted: async () => {},
     });
 

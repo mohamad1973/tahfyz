@@ -121,6 +121,7 @@ export async function createSeedData(): Promise<AppData> {
   const users = [
     {
       id: "usr_admin",
+      username: "admin",
       email: "admin@tahfyz.com",
       passwordHash: adminPass,
       name: "Tahfyz Admin",
@@ -130,7 +131,7 @@ export async function createSeedData(): Promise<AppData> {
       createdAt: new Date().toISOString(),
     },
     ...teachers.map((t, i) => {
-      const emailLocal = [
+      const username = [
         "ahmed",
         "ibrahim",
         "omar",
@@ -142,7 +143,8 @@ export async function createSeedData(): Promise<AppData> {
       ][i];
       return {
         id: t.userId!,
-        email: `${emailLocal}@tahfyz.com`,
+        username,
+        email: `${username}@tahfyz.com`,
         passwordHash: teacherPass,
         name: t.name,
         role: "teacher" as const,

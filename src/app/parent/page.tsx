@@ -45,7 +45,7 @@ export default async function ParentDashboard() {
           <div key={child.id} className="mt-4 rounded-2xl border border-line p-4">
             <h3 className="font-semibold">
               {child.name}{" "}
-              <span className="font-normal text-ink-muted">({child.email})</span>
+              <span className="font-normal text-ink-muted">({child.username})</span>
             </h3>
             <ul className="mt-2 space-y-1 text-sm">
               {bookings.length === 0 && (

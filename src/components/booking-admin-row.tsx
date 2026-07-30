@@ -81,8 +81,8 @@ export function BookingAdminRow({
                   else
                     setMsg(
                       res.tempPassword
-                        ? `تم · ${res.studentEmail} · كلمة مؤقتة: ${res.tempPassword}`
-                        : `تم · مرتبط بـ ${res.studentEmail}`,
+                        ? `تم · ${res.studentUsername || res.studentEmail} · كلمة مؤقتة: ${res.tempPassword}`
+                        : `تم · مرتبط بـ ${res.studentUsername || res.studentEmail}`,
                     );
                 });
               }}

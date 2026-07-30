@@ -19,16 +19,25 @@ function safeFileName(name: string) {
   return (name || "upload.bin").replace(/\s+/g, "-");
 }
 
-export function TeacherProfileEditor({ teacher }: { teacher: Teacher }) {
+export function TeacherProfileEditor({
+  teacher,
+  mode = "self",
+}: {
+  teacher: Teacher;
+  mode?: "self" | "admin";
+}) {
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [photoPreview, setPhotoPreview] = useState(teacher.photoUrl);
+  const teacherId = teacher.id;
 
   return (
     <div className="space-y-8">
       <section className="rounded-2xl border border-line bg-card p-5">
-        <h2 className="font-display text-xl">ملفي الشخصي</h2>
+        <h2 className="font-display text-xl">
+          {mode === "admin" ? "ملف الشيخ" : "ملفي الشخصي"}
+        </h2>
         <div className="mt-4 flex flex-col gap-4 sm:flex-row">
           <div className="relative h-36 w-28 overflow-hidden rounded-xl bg-bg-deep">
             <Image
@@ -57,13 +66,16 @@ export function TeacherProfileEditor({ teacher }: { teacher: Teacher }) {
               setMsg(null);
               start(async () => {
                 try {
-                  const pathname = `teachers/${teacher.id}/photo-${Date.now()}-${safeFileName(file.name)}`;
+                  const pathname = `teachers/${teacherId}/photo-${Date.now()}-${safeFileName(file.name)}`;
                   const blob = await upload(pathname, file, {
                     access: "public",
                     handleUploadUrl: "/api/blob/upload",
-                    clientPayload: JSON.stringify({ kind: "photo" }),
+                    clientPayload: JSON.stringify({ kind: "photo", teacherId }),
                   });
-                  const res = await saveTeacherPhotoUrlAction(blob.url);
+                  const res = await saveTeacherPhotoUrlAction({
+                    url: blob.url,
+                    teacherId,
+                  });
                   if (!res.ok) {
                     setError(res.error);
                     return;
@@ -104,11 +116,13 @@ export function TeacherProfileEditor({ teacher }: { teacher: Teacher }) {
             setError(null);
             setMsg(null);
             start(async () => {
-              await updateTeacherProfileAction(fd);
-              setMsg("تم حفظ المعلومات");
+              const res = await updateTeacherProfileAction(fd);
+              if (res && "ok" in res && !res.ok) setError(res.error);
+              else setMsg("تم حفظ المعلومات");
             });
           }}
         >
+          <input type="hidden" name="teacherId" value={teacherId} />
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm">
               <span className="mb-1 block font-medium">الاسم (EN)</span>
@@ -168,6 +182,18 @@ export function TeacherProfileEditor({ teacher }: { teacher: Teacher }) {
               className="w-full rounded-xl border border-line bg-bg px-3 py-2"
             />
           </label>
+          {mode === "admin" && (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="hidden" name="active" value="false" />
+              <input
+                type="checkbox"
+                name="active"
+                value="true"
+                defaultChecked={teacher.active}
+              />
+              <span>ظاهر في الموقع (نشط)</span>
+            </label>
+          )}
           <button
             type="submit"
             disabled={pending}
@@ -181,7 +207,7 @@ export function TeacherProfileEditor({ teacher }: { teacher: Teacher }) {
       </section>
 
       <MediaSection
-        teacherId={teacher.id}
+        teacherId={teacherId}
         kind="video"
         title="فيديوهات البروفايل"
         items={teacher.videos || []}
@@ -190,7 +216,7 @@ export function TeacherProfileEditor({ teacher }: { teacher: Teacher }) {
         maxLabel="Video max 50MB"
       />
       <MediaSection
-        teacherId={teacher.id}
+        teacherId={teacherId}
         kind="audio"
         title="صوتيات البروفايل"
         items={teacher.audios || []}
@@ -247,6 +273,7 @@ function MediaSection({
                 });
               }}
             >
+              <input type="hidden" name="teacherId" value={teacherId} />
               <input type="hidden" name="kind" value={kind} />
               <input type="hidden" name="mediaId" value={m.id} />
               <button type="submit" className="text-xs text-danger">
@@ -281,12 +308,17 @@ function MediaSection({
                 access: "public",
                 handleUploadUrl: "/api/blob/upload",
                 multipart: file.size > 4 * 1024 * 1024,
-                clientPayload: JSON.stringify({ kind, title: mediaTitle }),
+                clientPayload: JSON.stringify({
+                  kind,
+                  title: mediaTitle,
+                  teacherId,
+                }),
               });
               const res = await saveTeacherMediaUrlAction({
                 kind,
                 title: mediaTitle,
                 url: blob.url,
+                teacherId,
               });
               if (!res.ok) {
                 setError(res.error);

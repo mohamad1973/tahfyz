@@ -8,7 +8,8 @@ export type BookingStatus =
 
 export interface User {
   id: string;
-  email: string;
+  username: string;
+  email?: string;
   passwordHash: string;
   name: string;
   role: Role;

@@ -5,17 +5,29 @@ import {
   addBooking,
   addNotification,
   addUser,
+  createTeacher,
   expireStaleHolds,
   getAvailability,
   getBookingById,
   getBookings,
   getTeacher,
   getUserByEmail,
+  getUserById,
+  getUserByUsername,
+  replaceAvailability,
   updateBooking,
   updateTeacher,
   updateUser,
 } from "./store";
-import { HOLD_HOURS, hashPassword, uid, verifyPassword } from "./utils";
+import {
+  HOLD_HOURS,
+  hashPassword,
+  isValidUsername,
+  normalizeUsername,
+  uid,
+  usernameFromEmail,
+  verifyPassword,
+} from "./utils";
 import { buildCalendarWeek, buildOpenSlots } from "./slots";
 import {
   clearSession,
@@ -137,8 +149,13 @@ async function finalizeBookingPayment(
   let tempPassword: string | undefined;
   if (!student) {
     tempPassword = `Tahfyz-${booking.id.slice(-6)}`;
+    let username = usernameFromEmail(booking.guestEmail);
+    if (await getUserByUsername(username)) {
+      username = `${username}_${uid("u").slice(-6)}`.slice(0, 32);
+    }
     student = await addUser({
       id: uid("usr"),
+      username,
       email: booking.guestEmail,
       passwordHash: await hashPassword(tempPassword),
       name: booking.guestName,
@@ -178,16 +195,15 @@ async function finalizeBookingPayment(
   }
 
   const adminId =
-    notifyAdminId ||
-    (await getUserByEmail("admin@tahfyz.com"))?.id;
+    notifyAdminId || (await getUserByUsername("admin"))?.id;
   if (adminId) {
     await addNotification({
       id: uid("ntf"),
       userId: adminId,
       title: "Payment confirmed",
       body: tempPassword
-        ? `Account for ${student.email}. Temp password: ${tempPassword}`
-        : `Linked existing account ${student.email}`,
+        ? `Account ${student.username}. Temp password: ${tempPassword}`
+        : `Linked existing account ${student.username}`,
       read: false,
       createdAt: new Date().toISOString(),
       bookingId: booking.id,
@@ -203,6 +219,7 @@ async function finalizeBookingPayment(
   return {
     ok: true as const,
     studentEmail: student.email,
+    studentUsername: student.username,
     tempPassword,
     mustSetPassword: !!student.mustSetPassword,
   };
@@ -263,11 +280,11 @@ export async function cancelBooking(bookingId: string) {
 }
 
 export async function loginAction(formData: FormData) {
-  const email = String(formData.get("email") || "").toLowerCase().trim();
+  const username = normalizeUsername(String(formData.get("username") || ""));
   const password = String(formData.get("password") || "");
-  const user = await getUserByEmail(email);
+  const user = await getUserByUsername(username);
   if (!user || !(await verifyPassword(password, user.passwordHash))) {
-    return { ok: false as const, error: "Invalid email or password" };
+    return { ok: false as const, error: "Invalid username or password" };
   }
   await setSession(user);
   redirect(dashboardPath(user.role));
@@ -318,15 +335,27 @@ export async function registerParentAction(formData: FormData) {
     .toLowerCase()
     .trim();
   const password = String(formData.get("password") || "");
-  if (!name || !email || password.length < 6) {
+  let username = normalizeUsername(String(formData.get("username") || ""));
+  if (!username && email) username = usernameFromEmail(email);
+  if (!name || !username || password.length < 6) {
     return { ok: false as const, error: "Fill all fields (password 6+ chars)" };
   }
-  if (await getUserByEmail(email)) {
+  if (!isValidUsername(username)) {
+    return {
+      ok: false as const,
+      error: "Username: 3–32 chars, letters/numbers/_ only",
+    };
+  }
+  if (await getUserByUsername(username)) {
+    return { ok: false as const, error: "Username already taken" };
+  }
+  if (email && (await getUserByEmail(email))) {
     return { ok: false as const, error: "Email already registered" };
   }
   const user = await addUser({
     id: uid("usr"),
-    email,
+    username,
+    email: email || undefined,
     passwordHash: await hashPassword(password),
     name,
     role: "parent",
@@ -336,9 +365,35 @@ export async function registerParentAction(formData: FormData) {
   redirect("/parent");
 }
 
+async function resolveManagedTeacherId(
+  actor: { role: string; teacherId?: string },
+  requestedTeacherId?: string | null,
+): Promise<{ ok: true; teacherId: string } | { ok: false; error: string }> {
+  if (actor.role === "admin") {
+    const teacherId = requestedTeacherId?.trim();
+    if (!teacherId) return { ok: false, error: "Teacher id required" };
+    const teacher = await getTeacher(teacherId);
+    if (!teacher) return { ok: false, error: "Teacher not found" };
+    return { ok: true, teacherId };
+  }
+  if (actor.role === "teacher" && actor.teacherId) {
+    if (requestedTeacherId && requestedTeacherId !== actor.teacherId) {
+      return { ok: false, error: "Not authorized" };
+    }
+    return { ok: true, teacherId: actor.teacherId };
+  }
+  return { ok: false, error: "Not authorized" };
+}
+
 export async function updateTeacherProfileAction(formData: FormData) {
-  const { user } = await requireSession(["teacher"]);
-  const teacherId = user.teacherId!;
+  const { user } = await requireSession(["teacher", "admin"]);
+  const resolved = await resolveManagedTeacherId(
+    user,
+    String(formData.get("teacherId") || "") || user.teacherId,
+  );
+  if (!resolved.ok) return { ok: false as const, error: resolved.error };
+  const teacherId = resolved.teacherId;
+
   const name = String(formData.get("name") || "").trim();
   const nameAr = String(formData.get("nameAr") || "").trim();
   const bio = String(formData.get("bio") || "").trim();
@@ -351,6 +406,11 @@ export async function updateTeacherProfileAction(formData: FormData) {
   const priceRaw = Number(formData.get("priceUsd"));
   const priceUsd =
     Number.isFinite(priceRaw) && priceRaw > 0 ? priceRaw : undefined;
+  const activeValues = formData.getAll("active").map(String);
+  const active =
+    activeValues.length === 0
+      ? undefined
+      : activeValues.includes("true") || activeValues.includes("on");
 
   await updateTeacher(teacherId, {
     name: name || undefined,
@@ -359,13 +419,18 @@ export async function updateTeacherProfileAction(formData: FormData) {
     bioAr: bioAr || undefined,
     subjects: subjects.length ? subjects : undefined,
     priceUsd,
+    active,
   });
 
-  if (name) {
-    await updateUser(user.id, { name });
+  const teacher = await getTeacher(teacherId);
+  if (name && teacher?.userId) {
+    await updateUser(teacher.userId, { name });
   }
 
   revalidatePath("/teacher");
+  revalidatePath("/admin");
+  revalidatePath("/admin/teachers");
+  revalidatePath(`/admin/teachers/${teacherId}`);
   revalidatePath("/teachers");
   revalidatePath(`/teachers/${teacherId}`);
   return { ok: true as const };
@@ -383,26 +448,35 @@ function isBlobUrl(url: string) {
   }
 }
 
-export async function saveTeacherPhotoUrlAction(url: string) {
-  const { user } = await requireSession(["teacher"]);
-  const teacherId = user.teacherId!;
-  if (!url || !isBlobUrl(url)) {
+export async function saveTeacherPhotoUrlAction(input: {
+  url: string;
+  teacherId?: string;
+}) {
+  const { user } = await requireSession(["teacher", "admin"]);
+  const resolved = await resolveManagedTeacherId(user, input.teacherId);
+  if (!resolved.ok) return { ok: false as const, error: resolved.error };
+  if (!input.url || !isBlobUrl(input.url)) {
     return { ok: false as const, error: "Invalid photo URL" };
   }
-  await updateTeacher(teacherId, { photoUrl: url });
+  await updateTeacher(resolved.teacherId, { photoUrl: input.url });
   revalidatePath("/teacher");
+  revalidatePath("/admin/teachers");
+  revalidatePath(`/admin/teachers/${resolved.teacherId}`);
   revalidatePath("/teachers");
-  revalidatePath(`/teachers/${teacherId}`);
-  return { ok: true as const, url };
+  revalidatePath(`/teachers/${resolved.teacherId}`);
+  return { ok: true as const, url: input.url };
 }
 
 export async function saveTeacherMediaUrlAction(input: {
   kind: "video" | "audio";
   title: string;
   url: string;
+  teacherId?: string;
 }) {
-  const { user } = await requireSession(["teacher"]);
-  const teacherId = user.teacherId!;
+  const { user } = await requireSession(["teacher", "admin"]);
+  const resolved = await resolveManagedTeacherId(user, input.teacherId);
+  if (!resolved.ok) return { ok: false as const, error: resolved.error };
+  const teacherId = resolved.teacherId;
   const title = input.title.trim() || "Untitled";
   if (input.kind !== "video" && input.kind !== "audio") {
     return { ok: false as const, error: "Invalid media type" };
@@ -422,13 +496,19 @@ export async function saveTeacherMediaUrlAction(input: {
   }
 
   revalidatePath("/teacher");
+  revalidatePath(`/admin/teachers/${teacherId}`);
   revalidatePath(`/teachers/${teacherId}`);
   return { ok: true as const };
 }
 
 export async function deleteTeacherMediaAction(formData: FormData) {
-  const { user } = await requireSession(["teacher"]);
-  const teacherId = user.teacherId!;
+  const { user } = await requireSession(["teacher", "admin"]);
+  const resolved = await resolveManagedTeacherId(
+    user,
+    String(formData.get("teacherId") || "") || user.teacherId,
+  );
+  if (!resolved.ok) return { ok: false as const, error: resolved.error };
+  const teacherId = resolved.teacherId;
   const kind = String(formData.get("kind") || "");
   const mediaId = String(formData.get("mediaId") || "");
   const teacher = await getTeacher(teacherId);
@@ -447,6 +527,174 @@ export async function deleteTeacherMediaAction(formData: FormData) {
   }
 
   revalidatePath("/teacher");
+  revalidatePath(`/admin/teachers/${teacherId}`);
   revalidatePath(`/teachers/${teacherId}`);
+  return { ok: true as const };
+}
+
+export async function updateAccountCredentialsAction(formData: FormData) {
+  const { user: actor } = await requireSession(["teacher", "admin"]);
+  const targetUserId = String(formData.get("userId") || "").trim() || actor.id;
+  const username = normalizeUsername(String(formData.get("username") || ""));
+  const password = String(formData.get("password") || "");
+  const confirm = String(formData.get("confirm") || "");
+  const currentPassword = String(formData.get("currentPassword") || "");
+
+  const target = await getUserById(targetUserId);
+  if (!target) return { ok: false as const, error: "User not found" };
+
+  if (actor.role === "teacher") {
+    if (target.id !== actor.id) {
+      return { ok: false as const, error: "Not authorized" };
+    }
+    if (!(await verifyPassword(currentPassword, actor.passwordHash))) {
+      return { ok: false as const, error: "Current password is wrong" };
+    }
+  } else if (actor.role === "admin") {
+    if (target.role !== "teacher" && target.id !== actor.id) {
+      return { ok: false as const, error: "Can only edit teacher accounts" };
+    }
+  }
+
+  if (!isValidUsername(username)) {
+    return {
+      ok: false as const,
+      error: "Username: 3–32 chars, letters/numbers/_ only",
+    };
+  }
+  const taken = await getUserByUsername(username);
+  if (taken && taken.id !== target.id) {
+    return { ok: false as const, error: "Username already taken" };
+  }
+  if (password) {
+    if (password.length < 6 || password !== confirm) {
+      return { ok: false as const, error: "Password must match (6+ chars)" };
+    }
+  }
+
+  await updateUser(target.id, {
+    username,
+    passwordHash: password ? await hashPassword(password) : undefined,
+  });
+
+  if (target.id === actor.id) {
+    const refreshed = await getUserById(actor.id);
+    if (refreshed) await setSession(refreshed);
+  }
+
+  revalidatePath("/teacher");
+  revalidatePath("/admin/teachers");
+  return { ok: true as const };
+}
+
+export async function updateTeacherAvailabilityAction(formData: FormData) {
+  const { user } = await requireSession(["teacher", "admin"]);
+  const resolved = await resolveManagedTeacherId(
+    user,
+    String(formData.get("teacherId") || "") || user.teacherId,
+  );
+  if (!resolved.ok) return { ok: false as const, error: resolved.error };
+
+  const raw = String(formData.get("slotsJson") || "[]");
+  let parsed: { dayOfWeek: number; startHour: number; endHour: number }[] = [];
+  try {
+    parsed = JSON.parse(raw) as typeof parsed;
+  } catch {
+    return { ok: false as const, error: "Invalid schedule data" };
+  }
+
+  const slots = parsed.filter(
+    (s) =>
+      Number.isInteger(s.dayOfWeek) &&
+      s.dayOfWeek >= 0 &&
+      s.dayOfWeek <= 6 &&
+      Number.isInteger(s.startHour) &&
+      Number.isInteger(s.endHour) &&
+      s.startHour >= 0 &&
+      s.endHour > s.startHour &&
+      s.endHour <= 24,
+  );
+
+  await replaceAvailability(resolved.teacherId, slots);
+  revalidatePath("/teacher");
+  revalidatePath(`/admin/teachers/${resolved.teacherId}`);
+  revalidatePath(`/teachers/${resolved.teacherId}`);
+  return { ok: true as const };
+}
+
+export async function createTeacherAccountAction(formData: FormData) {
+  await requireSession(["admin"]);
+  const name = String(formData.get("name") || "").trim();
+  const nameAr = String(formData.get("nameAr") || "").trim();
+  const username = normalizeUsername(String(formData.get("username") || ""));
+  const password = String(formData.get("password") || "");
+  const priceRaw = Number(formData.get("priceUsd"));
+  const priceUsd =
+    Number.isFinite(priceRaw) && priceRaw > 0 ? Math.round(priceRaw) : 25;
+
+  if (!name || !nameAr) {
+    return { ok: false as const, error: "Name required (EN + AR)" };
+  }
+  if (!isValidUsername(username)) {
+    return {
+      ok: false as const,
+      error: "Username: 3–32 chars, letters/numbers/_ only",
+    };
+  }
+  if (password.length < 6) {
+    return { ok: false as const, error: "Password 6+ chars" };
+  }
+  if (await getUserByUsername(username)) {
+    return { ok: false as const, error: "Username already taken" };
+  }
+
+  const teacherId = uid("tch");
+  const userId = uid("usr");
+  await addUser({
+    id: userId,
+    username,
+    passwordHash: await hashPassword(password),
+    name,
+    role: "teacher",
+    teacherId,
+    createdAt: new Date().toISOString(),
+  });
+  await createTeacher({
+    id: teacherId,
+    name,
+    nameAr,
+    photoUrl: "/teachers/teacher-01.png",
+    bio: "",
+    bioAr: "",
+    subjects: ["Quran Memorization"],
+    priceUsd,
+    userId,
+    active: true,
+  });
+  await replaceAvailability(teacherId, [
+    { dayOfWeek: 0, startHour: 18, endHour: 22 },
+    { dayOfWeek: 1, startHour: 17, endHour: 21 },
+    { dayOfWeek: 2, startHour: 18, endHour: 22 },
+    { dayOfWeek: 3, startHour: 17, endHour: 21 },
+    { dayOfWeek: 4, startHour: 16, endHour: 20 },
+    { dayOfWeek: 6, startHour: 10, endHour: 14 },
+  ]);
+
+  revalidatePath("/admin/teachers");
+  revalidatePath("/teachers");
+  return { ok: true as const, teacherId };
+}
+
+export async function setTeacherActiveAction(formData: FormData) {
+  await requireSession(["admin"]);
+  const teacherId = String(formData.get("teacherId") || "");
+  const active = String(formData.get("active") || "") === "true";
+  if (!(await getTeacher(teacherId))) {
+    return { ok: false as const, error: "Not found" };
+  }
+  await updateTeacher(teacherId, { active });
+  revalidatePath("/admin/teachers");
+  revalidatePath(`/admin/teachers/${teacherId}`);
+  revalidatePath("/teachers");
   return { ok: true as const };
 }

@@ -115,6 +115,7 @@ async function main() {
   await prisma.user.create({
     data: {
       id: "usr_admin",
+      username: "admin",
       email: "admin@tahfyz.com",
       passwordHash: hashPassword("admin123"),
       name: "Tahfyz Admin",
@@ -125,7 +126,7 @@ async function main() {
     },
   });
 
-  const emailLocals = [
+  const usernames = [
     "ahmed",
     "ibrahim",
     "omar",
@@ -141,7 +142,8 @@ async function main() {
     await prisma.user.create({
       data: {
         id: t.userId,
-        email: `${emailLocals[i]}@tahfyz.com`,
+        username: usernames[i],
+        email: `${usernames[i]}@tahfyz.com`,
         passwordHash: teacherPass,
         name: t.name,
         role: "teacher",

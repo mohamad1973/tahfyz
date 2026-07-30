@@ -7,7 +7,7 @@ const COOKIE = "tahfyz_session";
 export type Session = {
   userId: string;
   role: Role;
-  email: string;
+  username: string;
   name: string;
 };
 
@@ -30,7 +30,7 @@ export async function setSession(user: User) {
   const session: Session = {
     userId: user.id,
     role: user.role,
-    email: user.email,
+    username: user.username,
     name: user.name,
   };
   jar.set(COOKIE, encode(session), {

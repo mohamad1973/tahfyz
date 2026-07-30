@@ -29,6 +29,14 @@ export default async function AdminPage() {
       <p className="mt-1 text-sm text-ink-muted">
         حجوزات الضيوف تظهر هنا فقط حتى يتم التحصيل وإنشاء حساب الطالب.
       </p>
+      <p className="mt-3">
+        <a
+          href="/admin/teachers"
+          className="inline-flex rounded-xl bg-olive px-4 py-2 text-sm font-semibold text-card"
+        >
+          إدارة الشيوخ (حسابات · بروفايل · جدول)
+        </a>
+      </p>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-3">
         <Stat label="بانتظار الدفع" value={pending.length} />
@@ -88,7 +96,7 @@ export default async function AdminPage() {
             >
               <span className="font-medium">{s.name}</span>
               <span className="mx-2 text-ink-muted">·</span>
-              <span className="text-ink-muted">{s.email}</span>
+              <span className="text-ink-muted">{s.username}{s.email ? ` · ${s.email}` : ""}</span>
               {s.mustSetPassword && (
                 <span className="mr-2 rounded-full bg-sand-soft px-2 py-0.5 text-xs">
                   بانتظار تعيين كلمة المرور

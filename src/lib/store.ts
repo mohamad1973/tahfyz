@@ -14,7 +14,8 @@ import type {
 
 function toUser(row: {
   id: string;
-  email: string;
+  username: string;
+  email: string | null;
   passwordHash: string;
   name: string;
   role: Role;
@@ -26,7 +27,8 @@ function toUser(row: {
 }): User {
   return {
     id: row.id,
-    email: row.email,
+    username: row.username,
+    email: row.email ?? undefined,
     passwordHash: row.passwordHash,
     name: row.name,
     role: row.role,
@@ -138,9 +140,11 @@ function toNotification(row: {
   };
 }
 
-export async function getTeachers(): Promise<Teacher[]> {
+export async function getTeachers(opts?: {
+  includeInactive?: boolean;
+}): Promise<Teacher[]> {
   const rows = await prisma.teacher.findMany({
-    where: { active: true },
+    where: opts?.includeInactive ? undefined : { active: true },
     include: { media: true },
     orderBy: { name: "asc" },
   });
@@ -195,6 +199,15 @@ export async function getBookingById(id: string): Promise<Booking | undefined> {
 export async function getUserByEmail(email: string): Promise<User | undefined> {
   const row = await prisma.user.findFirst({
     where: { email: email.toLowerCase() },
+  });
+  return row ? toUser(row) : undefined;
+}
+
+export async function getUserByUsername(
+  username: string,
+): Promise<User | undefined> {
+  const row = await prisma.user.findFirst({
+    where: { username: username.toLowerCase() },
   });
   return row ? toUser(row) : undefined;
 }
@@ -268,7 +281,8 @@ export async function addUser(user: User): Promise<User> {
   const row = await prisma.user.create({
     data: {
       id: user.id,
-      email: user.email.toLowerCase(),
+      username: user.username.toLowerCase(),
+      email: user.email ? user.email.toLowerCase() : null,
       passwordHash: user.passwordHash,
       name: user.name,
       role: user.role,
@@ -291,7 +305,13 @@ export async function updateUser(
   const row = await prisma.user.update({
     where: { id },
     data: {
-      email: patch.email?.toLowerCase(),
+      username: patch.username?.toLowerCase(),
+      email:
+        patch.email === undefined
+          ? undefined
+          : patch.email
+            ? patch.email.toLowerCase()
+            : null,
       passwordHash: patch.passwordHash,
       name: patch.name,
       role: patch.role,
@@ -437,6 +457,57 @@ export async function updateTeacher(
     include: { media: true },
   });
   return refreshed ? toTeacher(refreshed) : null;
+}
+
+export async function createTeacher(input: {
+  id: string;
+  name: string;
+  nameAr: string;
+  photoUrl: string;
+  bio: string;
+  bioAr: string;
+  subjects: string[];
+  priceUsd: number;
+  userId: string;
+  active?: boolean;
+}): Promise<Teacher> {
+  const row = await prisma.teacher.create({
+    data: {
+      id: input.id,
+      name: input.name,
+      nameAr: input.nameAr,
+      photoUrl: input.photoUrl,
+      bio: input.bio,
+      bioAr: input.bioAr,
+      subjects: input.subjects,
+      active: input.active ?? true,
+      userId: input.userId,
+      priceUsd: input.priceUsd,
+    },
+    include: { media: true },
+  });
+  return toTeacher(row);
+}
+
+export async function replaceAvailability(
+  teacherId: string,
+  slots: Omit<AvailabilitySlot, "id" | "teacherId">[],
+): Promise<AvailabilitySlot[]> {
+  await prisma.$transaction(async (tx) => {
+    await tx.teacherAvailability.deleteMany({ where: { teacherId } });
+    if (slots.length > 0) {
+      await tx.teacherAvailability.createMany({
+        data: slots.map((s, i) => ({
+          id: `avl_${teacherId}_${s.dayOfWeek}_${s.startHour}_${i}`,
+          teacherId,
+          dayOfWeek: s.dayOfWeek,
+          startHour: s.startHour,
+          endHour: s.endHour,
+        })),
+      });
+    }
+  });
+  return getAvailability(teacherId);
 }
 
 export async function expireStaleHolds(): Promise<void> {

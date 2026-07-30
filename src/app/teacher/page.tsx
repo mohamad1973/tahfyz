@@ -1,10 +1,15 @@
+import Link from "next/link";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { AccountCredentialsForm } from "@/components/account-credentials-form";
+import { AvailabilityEditor } from "@/components/availability-editor";
 import { ScheduleCalendar } from "@/components/schedule-calendar";
 import { TeacherProfileEditor } from "@/components/teacher-profile-editor";
 import {
   expireStaleHolds,
+  getAvailability,
   getNotifications,
   getTeacher,
+  getUserById,
   markNotificationRead,
 } from "@/lib/store";
 import { requireSession } from "@/lib/auth";
@@ -18,13 +23,15 @@ export default async function TeacherDashboard() {
   await expireStaleHolds();
   const teacherId = user.teacherId!;
   const teacher = await getTeacher(teacherId);
+  const availability = await getAvailability(teacherId);
+  const account = await getUserById(user.id);
   const notifications = await getNotifications(user.id);
 
   for (const n of notifications.filter((x) => !x.read).slice(0, 20)) {
     await markNotificationRead(n.id);
   }
 
-  if (!teacher) {
+  if (!teacher || !account) {
     return (
       <DashboardShell role="teacher" dir="rtl">
         <p>لم يتم العثور على ملف المعلم.</p>
@@ -38,8 +45,7 @@ export default async function TeacherDashboard() {
         مرحباً، {teacher.nameAr || user.name}
       </h1>
       <p className="mt-1 text-sm text-ink-muted">
-        عدّل بروفايلك، ارفع وسائط، وتابع الجدول: المربعات المؤكدة مظللة بالكامل
-        والمعلّقة بانتظار الدفع بلون رملي.
+        عدّل حسابك، بروفايلك، الوسائط، والجدول الأسبوعي.
       </p>
 
       <section className="mt-8">
@@ -61,15 +67,33 @@ export default async function TeacherDashboard() {
       </section>
 
       <section className="mt-10">
-        <h2 className="mb-3 font-display text-xl">جدولي (كاليندر)</h2>
+        <AccountCredentialsForm
+          userId={account.id}
+          username={account.username}
+          mode="self"
+        />
+      </section>
+
+      <section className="mt-10">
+        <AvailabilityEditor teacherId={teacherId} initial={availability} />
+      </section>
+
+      <section className="mt-10">
+        <h2 className="mb-3 font-display text-xl">جدولي (كاليندر الحجوزات)</h2>
         <div className="rounded-2xl border border-line bg-card p-4" dir="ltr">
           <ScheduleCalendar teacherId={teacherId} selectable={false} />
         </div>
       </section>
 
       <section className="mt-10" dir="rtl">
-        <TeacherProfileEditor teacher={teacher} />
+        <TeacherProfileEditor teacher={teacher} mode="self" />
       </section>
+
+      <p className="mt-8 text-sm text-ink-muted">
+        <Link href="/" className="underline">
+          العودة للموقع
+        </Link>
+      </p>
     </DashboardShell>
   );
 }

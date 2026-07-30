@@ -27,3 +27,18 @@ export async function verifyPassword(
 
 export const HOLD_HOURS = 24;
 export const EGYPT_TZ = "Africa/Cairo";
+
+/** Lowercase letters, digits, underscore; 3–32 chars */
+export function normalizeUsername(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+export function isValidUsername(raw: string): boolean {
+  return /^[a-z0-9_]{3,32}$/.test(normalizeUsername(raw));
+}
+
+export function usernameFromEmail(email: string): string {
+  const local = email.split("@")[0]?.toLowerCase().replace(/[^a-z0-9_]/g, "") || "user";
+  const base = local.slice(0, 24) || "user";
+  return base.length >= 3 ? base : `${base}123`.slice(0, 32);
+}
