@@ -25,7 +25,6 @@ import {
 } from "./auth";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { put } from "@vercel/blob";
 import type { MediaItem, PaymentMethod } from "./types";
 import { isStripeConfigured, stripeCheckoutUrl } from "./stripe";
 
@@ -372,48 +371,23 @@ export async function updateTeacherProfileAction(formData: FormData) {
   return { ok: true as const };
 }
 
-async function saveUpload(
-  teacherId: string,
-  file: File,
-  kind: "photo" | "video" | "audio",
-): Promise<string> {
-  const safeName = (file.name || "upload.bin").replace(/\s+/g, "-");
-  const pathname = `teachers/${teacherId}/${kind}-${Date.now()}-${safeName}`;
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!token) {
-    throw new Error(
-      "BLOB_READ_WRITE_TOKEN is missing. Create a Vercel Blob store and set token.",
+function isBlobUrl(url: string) {
+  try {
+    const host = new URL(url).hostname;
+    return (
+      host.endsWith(".public.blob.vercel-storage.com") ||
+      host === "public.blob.vercel-storage.com"
     );
+  } catch {
+    return false;
   }
-  const uploaded = await put(pathname, file, {
-    access: "public",
-    token,
-    addRandomSuffix: true,
-  });
-  return uploaded.url;
 }
 
-export async function uploadTeacherPhotoAction(formData: FormData) {
+export async function saveTeacherPhotoUrlAction(url: string) {
   const { user } = await requireSession(["teacher"]);
   const teacherId = user.teacherId!;
-  const file = formData.get("photo");
-  if (!(file instanceof File) || file.size === 0) {
-    return { ok: false as const, error: "Choose a photo" };
-  }
-  if (file.size > 2 * 1024 * 1024) {
-    return { ok: false as const, error: "Photo max 2MB" };
-  }
-  let url: string;
-  try {
-    url = await saveUpload(teacherId, file, "photo");
-  } catch (error) {
-    return {
-      ok: false as const,
-      error:
-        error instanceof Error
-          ? error.message
-          : "Photo upload failed. Check Blob config.",
-    };
+  if (!url || !isBlobUrl(url)) {
+    return { ok: false as const, error: "Invalid photo URL" };
   }
   await updateTeacher(teacherId, { photoUrl: url });
   revalidatePath("/teacher");
@@ -422,43 +396,26 @@ export async function uploadTeacherPhotoAction(formData: FormData) {
   return { ok: true as const, url };
 }
 
-export async function uploadTeacherMediaAction(formData: FormData) {
+export async function saveTeacherMediaUrlAction(input: {
+  kind: "video" | "audio";
+  title: string;
+  url: string;
+}) {
   const { user } = await requireSession(["teacher"]);
   const teacherId = user.teacherId!;
-  const kind = String(formData.get("kind") || "");
-  const title = String(formData.get("title") || "").trim() || "Untitled";
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    return { ok: false as const, error: "Choose a file" };
-  }
-  if (kind !== "video" && kind !== "audio") {
+  const title = input.title.trim() || "Untitled";
+  if (input.kind !== "video" && input.kind !== "audio") {
     return { ok: false as const, error: "Invalid media type" };
   }
-  if (kind === "video" && file.size > 50 * 1024 * 1024) {
-    return { ok: false as const, error: "Video max 50MB" };
-  }
-  if (kind === "audio" && file.size > 15 * 1024 * 1024) {
-    return { ok: false as const, error: "Audio max 15MB" };
+  if (!input.url || !isBlobUrl(input.url)) {
+    return { ok: false as const, error: "Invalid media URL" };
   }
 
   const teacher = await getTeacher(teacherId);
   if (!teacher) return { ok: false as const, error: "Teacher not found" };
 
-  let url: string;
-  try {
-    url = await saveUpload(teacherId, file, kind);
-  } catch (error) {
-    return {
-      ok: false as const,
-      error:
-        error instanceof Error
-          ? error.message
-          : "Media upload failed. Check Blob config.",
-    };
-  }
-  const item: MediaItem = { id: uid("med"), title, url };
-
-  if (kind === "video") {
+  const item: MediaItem = { id: uid("med"), title, url: input.url };
+  if (input.kind === "video") {
     await updateTeacher(teacherId, { videos: [...(teacher.videos || []), item] });
   } else {
     await updateTeacher(teacherId, { audios: [...(teacher.audios || []), item] });

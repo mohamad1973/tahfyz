@@ -2,18 +2,28 @@
 
 import { useState, useTransition } from "react";
 import Image from "next/image";
+import { upload } from "@vercel/blob/client";
 import type { Teacher } from "@/lib/types";
 import {
   deleteTeacherMediaAction,
+  saveTeacherMediaUrlAction,
+  saveTeacherPhotoUrlAction,
   updateTeacherProfileAction,
-  uploadTeacherMediaAction,
-  uploadTeacherPhotoAction,
 } from "@/lib/actions";
+
+const PHOTO_MAX = 2 * 1024 * 1024;
+const VIDEO_MAX = 50 * 1024 * 1024;
+const AUDIO_MAX = 15 * 1024 * 1024;
+
+function safeFileName(name: string) {
+  return (name || "upload.bin").replace(/\s+/g, "-");
+}
 
 export function TeacherProfileEditor({ teacher }: { teacher: Teacher }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
+  const [photoPreview, setPhotoPreview] = useState(teacher.photoUrl);
 
   return (
     <div className="space-y-8">
@@ -22,21 +32,51 @@ export function TeacherProfileEditor({ teacher }: { teacher: Teacher }) {
         <div className="mt-4 flex flex-col gap-4 sm:flex-row">
           <div className="relative h-36 w-28 overflow-hidden rounded-xl bg-bg-deep">
             <Image
-              src={teacher.photoUrl}
+              src={photoPreview}
               alt={teacher.name}
               fill
+              unoptimized={photoPreview.includes("blob.vercel-storage.com")}
               className="object-cover object-top"
             />
           </div>
           <form
             className="flex-1 space-y-2"
-            action={(fd) => {
+            onSubmit={(e) => {
+              e.preventDefault();
+              const fd = new FormData(e.currentTarget);
+              const file = fd.get("photo");
+              if (!(file instanceof File) || file.size === 0) {
+                setError("Choose a photo");
+                return;
+              }
+              if (file.size > PHOTO_MAX) {
+                setError("Photo max 2MB");
+                return;
+              }
               setError(null);
               setMsg(null);
               start(async () => {
-                const res = await uploadTeacherPhotoAction(fd);
-                if (!res.ok) setError(res.error);
-                else setMsg("تم تحديث الصورة");
+                try {
+                  const pathname = `teachers/${teacher.id}/photo-${Date.now()}-${safeFileName(file.name)}`;
+                  const blob = await upload(pathname, file, {
+                    access: "public",
+                    handleUploadUrl: "/api/blob/upload",
+                    clientPayload: JSON.stringify({ kind: "photo" }),
+                  });
+                  const res = await saveTeacherPhotoUrlAction(blob.url);
+                  if (!res.ok) {
+                    setError(res.error);
+                    return;
+                  }
+                  setPhotoPreview(blob.url);
+                  setMsg("تم تحديث الصورة");
+                } catch (err) {
+                  setError(
+                    err instanceof Error
+                      ? err.message
+                      : "Photo upload failed. Check Blob config.",
+                  );
+                }
               });
             }}
           >
@@ -141,43 +181,57 @@ export function TeacherProfileEditor({ teacher }: { teacher: Teacher }) {
       </section>
 
       <MediaSection
+        teacherId={teacher.id}
         kind="video"
         title="فيديوهات البروفايل"
         items={teacher.videos || []}
         accept="video/mp4,video/webm"
+        maxBytes={VIDEO_MAX}
+        maxLabel="Video max 50MB"
       />
       <MediaSection
+        teacherId={teacher.id}
         kind="audio"
         title="صوتيات البروفايل"
         items={teacher.audios || []}
         accept="audio/mpeg,audio/mp4,audio/wav,audio/x-m4a"
+        maxBytes={AUDIO_MAX}
+        maxLabel="Audio max 15MB"
       />
     </div>
   );
 }
 
 function MediaSection({
+  teacherId,
   kind,
   title,
   items,
   accept,
+  maxBytes,
+  maxLabel,
 }: {
+  teacherId: string;
   kind: "video" | "audio";
   title: string;
   items: { id: string; title: string; url: string }[];
   accept: string;
+  maxBytes: number;
+  maxLabel: string;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
   const [pending, start] = useTransition();
+  const [list, setList] = useState(items);
 
   return (
     <section className="rounded-2xl border border-line bg-card p-5">
       <h2 className="font-display text-xl">{title}</h2>
       <ul className="mt-3 space-y-2">
-        {items.length === 0 && (
+        {list.length === 0 && (
           <li className="text-sm text-ink-muted">لا ملفات بعد.</li>
         )}
-        {items.map((m) => (
+        {list.map((m) => (
           <li
             key={m.id}
             className="flex items-center justify-between gap-2 rounded-xl border border-line px-3 py-2 text-sm"
@@ -189,6 +243,7 @@ function MediaSection({
               action={(fd) => {
                 start(async () => {
                   await deleteTeacherMediaAction(fd);
+                  setList((prev) => prev.filter((x) => x.id !== m.id));
                 });
               }}
             >
@@ -203,15 +258,56 @@ function MediaSection({
       </ul>
       <form
         className="mt-4 space-y-2"
-        action={(fd) => {
+        onSubmit={(e) => {
+          e.preventDefault();
+          const form = e.currentTarget;
+          const fd = new FormData(form);
+          const file = fd.get("file");
+          const mediaTitle = String(fd.get("title") || "").trim() || "Untitled";
+          if (!(file instanceof File) || file.size === 0) {
+            setError("Choose a file");
+            return;
+          }
+          if (file.size > maxBytes) {
+            setError(maxLabel);
+            return;
+          }
           setError(null);
+          setMsg(null);
           start(async () => {
-            const res = await uploadTeacherMediaAction(fd);
-            if (!res.ok) setError(res.error);
+            try {
+              const pathname = `teachers/${teacherId}/${kind}-${Date.now()}-${safeFileName(file.name)}`;
+              const blob = await upload(pathname, file, {
+                access: "public",
+                handleUploadUrl: "/api/blob/upload",
+                multipart: file.size > 4 * 1024 * 1024,
+                clientPayload: JSON.stringify({ kind, title: mediaTitle }),
+              });
+              const res = await saveTeacherMediaUrlAction({
+                kind,
+                title: mediaTitle,
+                url: blob.url,
+              });
+              if (!res.ok) {
+                setError(res.error);
+                return;
+              }
+              setList((prev) => [
+                ...prev,
+                { id: `local-${Date.now()}`, title: mediaTitle, url: blob.url },
+              ]);
+              setMsg("تم الرفع");
+              form.reset();
+            } catch (err) {
+              setError(
+                err instanceof Error
+                  ? err.message
+                  : "Media upload failed. Check Blob config.",
+              );
+            }
           });
         }}
       >
-        <input type="hidden" name="kind" value={kind} />
         <input
           name="title"
           placeholder="عنوان الملف"
@@ -225,6 +321,7 @@ function MediaSection({
         >
           رفع
         </button>
+        {msg && <p className="text-sm text-ok">{msg}</p>}
         {error && <p className="text-sm text-danger">{error}</p>}
       </form>
     </section>
