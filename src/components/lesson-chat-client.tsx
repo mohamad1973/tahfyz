@@ -35,6 +35,8 @@ type PendingBubble = {
   text: string;
 };
 
+type SpeechLocale = "ar-EG" | "en-US";
+
 function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
   if (typeof window === "undefined") return null;
   const w = window as unknown as {
@@ -50,13 +52,38 @@ function detectSpeechLang(text: string, fallback: ChatLang): ChatLang {
   return fallback;
 }
 
+function localeToLang(locale: SpeechLocale): ChatLang {
+  return locale.startsWith("ar") ? "ar" : "en";
+}
+
+/** Drop garbage from wrong-language recognition sessions. */
+function shouldAcceptTranscript(
+  text: string,
+  sessionLocale: SpeechLocale,
+): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length < 2) return false;
+  const hasAr = /[\u0600-\u06FF]/.test(trimmed);
+  const hasLatin = /[A-Za-z]/.test(trimmed);
+  const sessionLang = localeToLang(sessionLocale);
+
+  if (sessionLang === "ar") {
+    // Arabic session: require Arabic letters; ignore pure Latin noise
+    if (!hasAr) return false;
+    return true;
+  }
+  // English session: require Latin letters; ignore pure Arabic
+  if (!hasLatin) return false;
+  if (hasAr && !hasLatin) return false;
+  return true;
+}
+
 function byNewest(a: ChatMessage, b: ChatMessage) {
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 }
 
 export function LessonChatClient({
   threadId,
-  role,
   peerName,
 }: {
   threadId: string;
@@ -67,7 +94,9 @@ export function LessonChatClient({
   const { t, lang } = useI18n();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [listening, setListening] = useState(false);
+  const [activeLocale, setActiveLocale] = useState<SpeechLocale>("ar-EG");
   const [interim, setInterim] = useState("");
+  const [interimLang, setInterimLang] = useState<ChatLang | null>(null);
   const [pending, setPending] = useState<PendingBubble[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [, start] = useTransition();
@@ -75,11 +104,7 @@ export function LessonChatClient({
   const lastStamp = useRef<string | undefined>(undefined);
   const aliveRef = useRef(true);
   const sendQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const speakLangRef = useRef<ChatLang>(role === "teacher" ? "ar" : "en");
-
-  const speakLang: ChatLang = role === "teacher" ? "ar" : "en";
-  const speakLocale = role === "teacher" ? "ar-EG" : "en-US";
-  speakLangRef.current = speakLang;
+  const activeLocaleRef = useRef<SpeechLocale>("ar-EG");
 
   const leftMessages = useMemo(
     () => messages.filter((m) => m.originalLang === "en").sort(byNewest),
@@ -99,10 +124,14 @@ export function LessonChatClient({
     lastStamp.current = message.createdAt;
   }
 
-  function sendFinal(text: string) {
+  function sendFinal(text: string, sessionLocale: SpeechLocale) {
     const payload = text.trim();
-    if (!payload) return;
-    const originalLang = detectSpeechLang(payload, speakLangRef.current);
+    if (!shouldAcceptTranscript(payload, sessionLocale)) return;
+
+    const originalLang = detectSpeechLang(
+      payload,
+      localeToLang(sessionLocale),
+    );
     const tempId = `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     setPending((prev) => [
@@ -110,6 +139,7 @@ export function LessonChatClient({
       ...prev,
     ]);
     setInterim("");
+    setInterimLang(null);
 
     sendQueueRef.current = sendQueueRef.current.then(async () => {
       setError(null);
@@ -169,6 +199,15 @@ export function LessonChatClient({
     }
 
     let restartTimer: number | undefined;
+    // Start with Arabic so teachers get a quick first pass; then flip each cycle
+    activeLocaleRef.current = "ar-EG";
+    setActiveLocale("ar-EG");
+
+    function flipLocale() {
+      activeLocaleRef.current =
+        activeLocaleRef.current === "ar-EG" ? "en-US" : "ar-EG";
+      setActiveLocale(activeLocaleRef.current);
+    }
 
     function begin() {
       if (!aliveRef.current || !Ctor) return;
@@ -177,9 +216,10 @@ export function LessonChatClient({
       } catch {
         /* ignore */
       }
+
+      const sessionLocale = activeLocaleRef.current;
       const rec = new Ctor();
-      rec.lang = speakLocale;
-      // Utterance mode: finals arrive faster, especially for Arabic
+      rec.lang = sessionLocale;
       rec.continuous = false;
       rec.interimResults = true;
       rec.onresult = (ev) => {
@@ -191,8 +231,19 @@ export function LessonChatClient({
           if (r.isFinal) finalChunk += transcript;
           else interimChunk += transcript;
         }
-        if (finalChunk.trim()) sendFinal(finalChunk);
-        else setInterim(interimChunk);
+        if (finalChunk.trim()) {
+          sendFinal(finalChunk, sessionLocale);
+        } else if (interimChunk.trim()) {
+          const previewLang = detectSpeechLang(
+            interimChunk,
+            localeToLang(sessionLocale),
+          );
+          // Only show interim if it matches the session language quality filter
+          if (shouldAcceptTranscript(interimChunk, sessionLocale) || interimChunk.length > 1) {
+            setInterim(interimChunk);
+            setInterimLang(previewLang);
+          }
+        }
       };
       rec.onerror = (ev) => {
         if (ev.error === "aborted" || ev.error === "no-speech") return;
@@ -207,8 +258,10 @@ export function LessonChatClient({
       };
       rec.onend = () => {
         setListening(false);
+        setInterim("");
+        setInterimLang(null);
         if (!aliveRef.current) return;
-        // Restart immediately for next sentence
+        flipLocale();
         restartTimer = window.setTimeout(() => {
           if (aliveRef.current) begin();
         }, 80);
@@ -220,6 +273,7 @@ export function LessonChatClient({
         setError(null);
       } catch {
         setListening(false);
+        flipLocale();
         restartTimer = window.setTimeout(() => {
           if (aliveRef.current) begin();
         }, 400);
@@ -239,15 +293,15 @@ export function LessonChatClient({
       recognitionRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadId, speakLocale, lang]);
+  }, [threadId, lang]);
 
   const listeningLabel =
     lang === "ar"
       ? listening
-        ? "يستمع…"
+        ? `يستمع (${activeLocale === "ar-EG" ? "عربي" : "إنجليزي"})…`
         : "في انتظار الميكروفون…"
       : listening
-        ? "Listening…"
+        ? `Listening (${activeLocale === "ar-EG" ? "Arabic" : "English"})…`
         : "Waiting for microphone…";
 
   function PaneMessages({
@@ -304,9 +358,7 @@ export function LessonChatClient({
         <div className="font-display text-lg text-olive-deep">
           {t.chatWith} {peerName}
         </div>
-        <p className="text-xs text-ink-muted">
-          {role === "student" ? t.micHintStudent : t.micHintTeacher}
-        </p>
+        <p className="text-xs text-ink-muted">{t.micHintBoth}</p>
         <p className="mt-1 text-[11px] text-ink-muted">{listeningLabel}</p>
         {error && <p className="mt-1 text-xs text-danger">{error}</p>}
       </div>
@@ -322,7 +374,7 @@ export function LessonChatClient({
           <PaneMessages
             items={leftMessages}
             pendingItems={leftPending}
-            showInterim={speakLang === "en"}
+            showInterim={interimLang === "en"}
             dir="rtl"
             cardClass="rounded-xl border border-line bg-bg px-3 py-2 text-sm"
           />
@@ -335,7 +387,7 @@ export function LessonChatClient({
           <PaneMessages
             items={rightMessages}
             pendingItems={rightPending}
-            showInterim={speakLang === "ar"}
+            showInterim={interimLang === "ar"}
             dir="ltr"
             cardClass="rounded-xl border border-olive/25 bg-olive/5 px-3 py-2 text-sm"
           />

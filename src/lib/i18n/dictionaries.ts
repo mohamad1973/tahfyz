@@ -56,6 +56,7 @@ export type Dictionary = {
   listening: string;
   micHintStudent: string;
   micHintTeacher: string;
+  micHintBoth: string;
   paneLeftEmpty: string;
   paneRightEmpty: string;
   resetPassword: string;
@@ -90,9 +91,9 @@ export const dictionaries: Record<Lang, Dictionary> = {
     linkChild: "ربط الابن",
     lessonChat: "شات الدرس",
     lessonChatHelpStudent:
-      "تكلم بالإنجليزية — تظهر الترجمة العربية في النصف الأيسر تلقائياً.",
+      "تكلم عربي أو إنجليزي — الترجمة تظهر للطرفين في العمودين تلقائياً.",
     lessonChatHelpTeacher:
-      "تكلم بالعربية — تظهر الترجمة الإنجليزية في النصف الأيمن تلقائياً.",
+      "تكلم عربي أو إنجليزي — الترجمة تظهر للطرفين في العمودين تلقائياً.",
     openChat: "فتح الشات",
     chatUnlock: "الشات يُفتح بعد حجز درس مع المعلم (الدفع غير مطلوب).",
     myLessons: "دروسي",
@@ -129,9 +130,11 @@ export const dictionaries: Record<Lang, Dictionary> = {
     holdToSpeak: "اضغط للتحدث",
     listening: "يستمع…",
     micHintStudent:
-      "تكلم بالإنجليزية فقط — الترجمة العربية تظهر تلقائياً في اليسار.",
+      "تكلم عربي أو إنجليزي — الترجمة تظهر للطرفين في العمودين.",
     micHintTeacher:
-      "تكلم بالعربية فقط — الترجمة الإنجليزية تظهر تلقائياً في اليمين.",
+      "تكلم عربي أو إنجليزي — الترجمة تظهر للطرفين في العمودين.",
+    micHintBoth:
+      "تكلم عربي أو إنجليزي من هذه الصفحة — يسار: إنجليزي→عربي · يمين: عربي→إنجليزي (يظهر عند الطرفين).",
     paneLeftEmpty: "الكلام الإنجليزي يظهر هنا مترجماً للعربية",
     paneRightEmpty: "الكلام العربي يظهر هنا مترجماً للإنجليزية",
     resetPassword: "إعادة تعيين كلمة المرور",
@@ -164,9 +167,9 @@ export const dictionaries: Record<Lang, Dictionary> = {
     linkChild: "Link child",
     lessonChat: "Lesson chat",
     lessonChatHelpStudent:
-      "Speak English — Arabic translation appears automatically on the left.",
+      "Speak Arabic or English — translations appear for both sides in both columns.",
     lessonChatHelpTeacher:
-      "Speak Arabic — English translation appears automatically on the right.",
+      "Speak Arabic or English — translations appear for both sides in both columns.",
     openChat: "Open chat",
     chatUnlock: "Chat unlocks after you book a lesson (payment not required).",
     myLessons: "My lessons",
@@ -207,9 +210,11 @@ export const dictionaries: Record<Lang, Dictionary> = {
     holdToSpeak: "Tap to speak",
     listening: "Listening…",
     micHintStudent:
-      "Just speak English — Arabic translation appears on the left automatically.",
+      "Speak Arabic or English — translations show for both people in both columns.",
     micHintTeacher:
-      "Just speak Arabic — English translation appears on the right automatically.",
+      "Speak Arabic or English — translations show for both people in both columns.",
+    micHintBoth:
+      "Speak Arabic or English on this page — left: EN→AR · right: AR→EN (visible to both sides).",
     paneLeftEmpty: "English speech appears here translated into Arabic",
     paneRightEmpty: "Arabic speech appears here translated into English",
     resetPassword: "Reset password",
