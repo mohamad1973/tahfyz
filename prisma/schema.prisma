@@ -137,3 +137,30 @@ model TeacherMedia {
 
   @@index([teacherId, kind])
 }
+
+model ChatThread {
+  id        String        @id
+  teacherId String
+  studentId String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  messages  ChatMessage[]
+
+  @@unique([teacherId, studentId])
+  @@index([teacherId])
+  @@index([studentId])
+}
+
+model ChatMessage {
+  id              String     @id
+  threadId        String
+  senderId        String
+  originalText    String     @db.Text
+  originalLang    String
+  translatedText  String     @db.Text
+  translatedLang  String
+  createdAt       DateTime   @default(now())
+  thread          ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+}

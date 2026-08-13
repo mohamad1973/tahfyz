@@ -1,6 +1,7 @@
 import { DashboardShell } from "@/components/dashboard-shell";
+import { OpenTeacherChatButton } from "@/components/open-chat-button";
 import { requireSession } from "@/lib/auth";
-import { getBookings, getTeachers } from "@/lib/store";
+import { getBookings, getTeachers, listStudentTeacherPairs } from "@/lib/store";
 import { formatSlotRange } from "@/lib/slots";
 import type { Metadata } from "next";
 
@@ -10,9 +11,11 @@ export const dynamic = "force-dynamic";
 export default async function StudentDashboard() {
   const { user } = await requireSession(["student"]);
   const bookings = await getBookings({ studentId: user.id });
-  const teachers = await getTeachers();
+  const teachers = await getTeachers({ includeInactive: true });
   const map = Object.fromEntries(teachers.map((t) => [t.id, t.name]));
+  const mapAr = Object.fromEntries(teachers.map((t) => [t.id, t.nameAr]));
   const academyWa = process.env.NEXT_PUBLIC_ACADEMY_WHATSAPP || "201000000001";
+  const chatPartners = await listStudentTeacherPairs(user.id);
 
   return (
     <DashboardShell role="student">
@@ -31,6 +34,32 @@ export default async function StudentDashboard() {
       >
         WhatsApp Tahfyz academy
       </a>
+
+      <section className="mt-10">
+        <h2 className="font-display text-xl">Lesson chat</h2>
+        <p className="mt-1 text-sm text-ink-muted">
+          Speak English — see English text + Arabic translation. Your teacher
+          sees both too.
+        </p>
+        <ul className="mt-3 space-y-2">
+          {chatPartners.length === 0 && (
+            <li className="text-sm text-ink-muted">
+              Chat unlocks after a confirmed booking with a teacher.
+            </li>
+          )}
+          {chatPartners.map((p) => (
+            <li
+              key={p.teacherId}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-card px-4 py-3 text-sm"
+            >
+              <span className="font-medium">
+                {mapAr[p.teacherId] || map[p.teacherId] || "Teacher"}
+              </span>
+              <OpenTeacherChatButton teacherId={p.teacherId} />
+            </li>
+          ))}
+        </ul>
+      </section>
 
       <section className="mt-10">
         <h2 className="font-display text-xl">My lessons</h2>
@@ -52,8 +81,13 @@ export default async function StudentDashboard() {
               <div className="text-ink-muted">
                 {formatSlotRange(b.slotStart, b.slotEnd, b.timezone)}
               </div>
-              <div className="mt-1 text-xs font-semibold uppercase text-ok">
-                {b.status}
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold uppercase text-ok">
+                  {b.status}
+                </span>
+                {b.status === "confirmed" && (
+                  <OpenTeacherChatButton teacherId={b.teacherId} />
+                )}
               </div>
             </li>
           ))}

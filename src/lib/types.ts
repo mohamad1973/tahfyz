@@ -90,6 +90,25 @@ export interface ParentStudentLink {
   studentId: string;
 }
 
+export interface ChatThread {
+  id: string;
+  teacherId: string;
+  studentId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  threadId: string;
+  senderId: string;
+  originalText: string;
+  originalLang: "en" | "ar";
+  translatedText: string;
+  translatedLang: "en" | "ar";
+  createdAt: string;
+}
+
 export interface AppData {
   users: User[];
   teachers: Teacher[];

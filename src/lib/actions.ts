@@ -3,6 +3,7 @@
 import { z } from "zod";
 import {
   addBooking,
+  addChatMessage,
   addNotification,
   addUser,
   createTeacher,
@@ -10,10 +11,16 @@ import {
   getAvailability,
   getBookingById,
   getBookings,
+  getChatMessages,
+  getChatThread,
+  getOrCreateChatThread,
   getTeacher,
   getUserByEmail,
   getUserById,
   getUserByUsername,
+  hasConfirmedLesson,
+  listStudentTeacherPairs,
+  listTeacherStudentPairs,
   replaceAvailability,
   updateBooking,
   updateTeacher,
@@ -28,6 +35,7 @@ import {
   usernameFromEmail,
   verifyPassword,
 } from "./utils";
+import { translateText, type ChatLang } from "./translate";
 import { buildCalendarWeek, buildOpenSlots } from "./slots";
 import {
   clearSession,
@@ -697,4 +705,125 @@ export async function setTeacherActiveAction(formData: FormData) {
   revalidatePath(`/admin/teachers/${teacherId}`);
   revalidatePath("/teachers");
   return { ok: true as const };
+}
+
+export async function openChatWithTeacherAction(teacherId: string) {
+  const { user } = await requireSession(["student"]);
+  if (!(await hasConfirmedLesson(teacherId, user.id))) {
+    return { ok: false as const, error: "Need a confirmed lesson first" };
+  }
+  if (!(await getTeacher(teacherId))) {
+    return { ok: false as const, error: "Teacher not found" };
+  }
+  const thread = await getOrCreateChatThread(teacherId, user.id);
+  return { ok: true as const, threadId: thread.id };
+}
+
+export async function openChatWithStudentAction(studentId: string) {
+  const { user } = await requireSession(["teacher"]);
+  const teacherId = user.teacherId!;
+  if (!(await hasConfirmedLesson(teacherId, studentId))) {
+    return { ok: false as const, error: "Need a confirmed lesson first" };
+  }
+  const student = await getUserById(studentId);
+  if (!student || student.role !== "student") {
+    return { ok: false as const, error: "Student not found" };
+  }
+  const thread = await getOrCreateChatThread(teacherId, studentId);
+  return { ok: true as const, threadId: thread.id };
+}
+
+export async function fetchChatMessagesAction(
+  threadId: string,
+  afterIso?: string,
+) {
+  const { user } = await requireSession(["student", "teacher"]);
+  const thread = await getChatThread(threadId);
+  if (!thread) return { ok: false as const, error: "Chat not found" };
+  const allowed =
+    (user.role === "student" && thread.studentId === user.id) ||
+    (user.role === "teacher" && thread.teacherId === user.teacherId);
+  if (!allowed) return { ok: false as const, error: "Not authorized" };
+  const messages = await getChatMessages(threadId, afterIso);
+  return { ok: true as const, messages };
+}
+
+export async function sendChatMessageAction(input: {
+  threadId: string;
+  text: string;
+  originalLang: ChatLang;
+}) {
+  const { user } = await requireSession(["student", "teacher"]);
+  const thread = await getChatThread(input.threadId);
+  if (!thread) return { ok: false as const, error: "Chat not found" };
+
+  const allowed =
+    (user.role === "student" && thread.studentId === user.id) ||
+    (user.role === "teacher" && thread.teacherId === user.teacherId);
+  if (!allowed) return { ok: false as const, error: "Not authorized" };
+
+  const text = input.text.trim();
+  if (!text) return { ok: false as const, error: "Empty message" };
+
+  // Role defaults: student speaks English, teacher speaks Arabic
+  // but trust client lang if valid.
+  let originalLang: ChatLang = input.originalLang;
+  if (originalLang !== "en" && originalLang !== "ar") {
+    originalLang = user.role === "teacher" ? "ar" : "en";
+  }
+  const translatedLang: ChatLang = originalLang === "en" ? "ar" : "en";
+  const translatedText = await translateText(text, originalLang, translatedLang);
+
+  const message = await addChatMessage({
+    id: uid("cmsg"),
+    threadId: thread.id,
+    senderId: user.id,
+    originalText: text,
+    originalLang,
+    translatedText,
+    translatedLang,
+    createdAt: new Date().toISOString(),
+  });
+
+  return { ok: true as const, message };
+}
+
+export async function listMyChatPartnersAction() {
+  const { user } = await requireSession(["student", "teacher"]);
+  if (user.role === "student") {
+    const pairs = await listStudentTeacherPairs(user.id);
+    const teachers = await Promise.all(
+      pairs.map(async (p) => {
+        const t = await getTeacher(p.teacherId);
+        return t
+          ? { teacherId: t.id, name: t.name, nameAr: t.nameAr }
+          : null;
+      }),
+    );
+    return {
+      ok: true as const,
+      role: "student" as const,
+      partners: teachers.filter(Boolean) as {
+        teacherId: string;
+        name: string;
+        nameAr: string;
+      }[],
+    };
+  }
+  const pairs = await listTeacherStudentPairs(user.teacherId!);
+  const students = await Promise.all(
+    pairs.map(async (p) => {
+      const s = await getUserById(p.studentId);
+      return s ? { studentId: s.id, name: s.name, username: s.username } : null;
+    }),
+  );
+  return {
+    ok: true as const,
+    role: "teacher" as const,
+    partners: students.filter(Boolean) as {
+      studentId: string;
+      name: string;
+      username: string;
+    }[],
+  };
 }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { AccountCredentialsForm } from "@/components/account-credentials-form";
 import { AvailabilityEditor } from "@/components/availability-editor";
+import { OpenStudentChatButton } from "@/components/open-chat-button";
 import { ScheduleCalendar } from "@/components/schedule-calendar";
 import { TeacherProfileEditor } from "@/components/teacher-profile-editor";
 import {
@@ -10,6 +11,7 @@ import {
   getNotifications,
   getTeacher,
   getUserById,
+  listTeacherStudentPairs,
   markNotificationRead,
 } from "@/lib/store";
 import { requireSession } from "@/lib/auth";
@@ -26,6 +28,12 @@ export default async function TeacherDashboard() {
   const availability = await getAvailability(teacherId);
   const account = await getUserById(user.id);
   const notifications = await getNotifications(user.id);
+  const studentPairs = await listTeacherStudentPairs(teacherId);
+  const students = (
+    await Promise.all(
+      studentPairs.map(async (p) => getUserById(p.studentId)),
+    )
+  ).filter(Boolean);
 
   for (const n of notifications.filter((x) => !x.read).slice(0, 20)) {
     await markNotificationRead(n.id);
@@ -45,8 +53,37 @@ export default async function TeacherDashboard() {
         مرحباً، {teacher.nameAr || user.name}
       </h1>
       <p className="mt-1 text-sm text-ink-muted">
-        عدّل حسابك، بروفايلك، الوسائط، والجدول الأسبوعي.
+        عدّل حسابك، بروفايلك، الوسائط، والجدول — وافتح شات الدرس مع طلابك.
       </p>
+
+      <section className="mt-8">
+        <h2 className="font-display text-xl">شات الدرس مع الطلاب</h2>
+        <p className="mt-1 text-sm text-ink-muted">
+          تكلم بالعربية → يظهر النص عربي والترجمة إنجليزي للطالب ولك.
+        </p>
+        <ul className="mt-3 space-y-2">
+          {students.length === 0 && (
+            <li className="text-sm text-ink-muted">
+              يظهر الطلاب بعد تأكيد حجز مدفوع.
+            </li>
+          )}
+          {students.map((s) =>
+            s ? (
+              <li
+                key={s.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-card px-4 py-3 text-sm"
+              >
+                <span>
+                  <span className="font-medium">{s.name}</span>
+                  <span className="mx-2 text-ink-muted">·</span>
+                  <span className="font-mono text-xs">{s.username}</span>
+                </span>
+                <OpenStudentChatButton studentId={s.id} />
+              </li>
+            ) : null,
+          )}
+        </ul>
+      </section>
 
       <section className="mt-8">
         <h2 className="font-display text-xl">الإشعارات</h2>

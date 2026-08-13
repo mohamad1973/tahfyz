@@ -1,8 +1,11 @@
 import { prisma } from "./db";
+import { uid } from "./utils";
 import type {
   AvailabilitySlot,
   Booking,
   BookingStatus,
+  ChatMessage,
+  ChatThread,
   MediaItem,
   Notification,
   ParentStudentLink,
@@ -518,5 +521,162 @@ export async function expireStaleHolds(): Promise<void> {
     },
     data: { status: "expired" },
   });
+}
+
+export async function hasConfirmedLesson(
+  teacherId: string,
+  studentId: string,
+): Promise<boolean> {
+  const count = await prisma.booking.count({
+    where: { teacherId, studentId, status: "confirmed" },
+  });
+  return count > 0;
+}
+
+export async function getOrCreateChatThread(
+  teacherId: string,
+  studentId: string,
+): Promise<ChatThread> {
+  const existing = await prisma.chatThread.findUnique({
+    where: { teacherId_studentId: { teacherId, studentId } },
+  });
+  if (existing) {
+    return {
+      id: existing.id,
+      teacherId: existing.teacherId,
+      studentId: existing.studentId,
+      createdAt: existing.createdAt.toISOString(),
+      updatedAt: existing.updatedAt.toISOString(),
+    };
+  }
+  const created = await prisma.chatThread.create({
+    data: {
+      id: uid("cth"),
+      teacherId,
+      studentId,
+    },
+  });
+  return {
+    id: created.id,
+    teacherId: created.teacherId,
+    studentId: created.studentId,
+    createdAt: created.createdAt.toISOString(),
+    updatedAt: created.updatedAt.toISOString(),
+  };
+}
+
+export async function getChatThread(id: string): Promise<ChatThread | undefined> {
+  const row = await prisma.chatThread.findUnique({ where: { id } });
+  if (!row) return undefined;
+  return {
+    id: row.id,
+    teacherId: row.teacherId,
+    studentId: row.studentId,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export async function listChatThreadsForUser(user: {
+  id: string;
+  role: Role;
+  teacherId?: string;
+}): Promise<ChatThread[]> {
+  const where =
+    user.role === "teacher" && user.teacherId
+      ? { teacherId: user.teacherId }
+      : user.role === "student"
+        ? { studentId: user.id }
+        : { id: "__none__" };
+  const rows = await prisma.chatThread.findMany({
+    where,
+    orderBy: { updatedAt: "desc" },
+  });
+  return rows.map((row) => ({
+    id: row.id,
+    teacherId: row.teacherId,
+    studentId: row.studentId,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }));
+}
+
+export async function getChatMessages(
+  threadId: string,
+  afterIso?: string,
+): Promise<ChatMessage[]> {
+  const rows = await prisma.chatMessage.findMany({
+    where: {
+      threadId,
+      ...(afterIso ? { createdAt: { gt: new Date(afterIso) } } : {}),
+    },
+    orderBy: { createdAt: "asc" },
+    take: 200,
+  });
+  return rows.map((row) => ({
+    id: row.id,
+    threadId: row.threadId,
+    senderId: row.senderId,
+    originalText: row.originalText,
+    originalLang: row.originalLang as "en" | "ar",
+    translatedText: row.translatedText,
+    translatedLang: row.translatedLang as "en" | "ar",
+    createdAt: row.createdAt.toISOString(),
+  }));
+}
+
+export async function addChatMessage(
+  message: ChatMessage,
+): Promise<ChatMessage> {
+  const row = await prisma.chatMessage.create({
+    data: {
+      id: message.id,
+      threadId: message.threadId,
+      senderId: message.senderId,
+      originalText: message.originalText,
+      originalLang: message.originalLang,
+      translatedText: message.translatedText,
+      translatedLang: message.translatedLang,
+      createdAt: new Date(message.createdAt),
+    },
+  });
+  await prisma.chatThread.update({
+    where: { id: message.threadId },
+    data: { updatedAt: new Date() },
+  });
+  return {
+    id: row.id,
+    threadId: row.threadId,
+    senderId: row.senderId,
+    originalText: row.originalText,
+    originalLang: row.originalLang as "en" | "ar",
+    translatedText: row.translatedText,
+    translatedLang: row.translatedLang as "en" | "ar",
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+export async function listStudentTeacherPairs(studentId: string): Promise<
+  { teacherId: string }[]
+> {
+  const rows = await prisma.booking.findMany({
+    where: { studentId, status: "confirmed" },
+    distinct: ["teacherId"],
+    select: { teacherId: true },
+  });
+  return rows;
+}
+
+export async function listTeacherStudentPairs(teacherId: string): Promise<
+  { studentId: string }[]
+> {
+  const rows = await prisma.booking.findMany({
+    where: { teacherId, status: "confirmed", studentId: { not: null } },
+    distinct: ["studentId"],
+    select: { studentId: true },
+  });
+  return rows
+    .filter((r): r is { studentId: string } => !!r.studentId)
+    .map((r) => ({ studentId: r.studentId }));
 }
 
