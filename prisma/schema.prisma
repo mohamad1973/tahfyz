@@ -159,6 +159,7 @@ model ChatMessage {
   originalLang    String
   translatedText  String     @db.Text
   translatedLang  String
+  audioUrl        String?    @db.Text
   createdAt       DateTime   @default(now())
   thread          ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
 

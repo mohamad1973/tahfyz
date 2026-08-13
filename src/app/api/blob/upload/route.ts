@@ -1,9 +1,9 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { getTeacher, getUserById } from "@/lib/store";
+import { getChatThread, getTeacher, getUserById } from "@/lib/store";
 
-type UploadKind = "photo" | "video" | "audio";
+type UploadKind = "photo" | "video" | "audio" | "chat-audio";
 
 const CONTENT_TYPES: Record<UploadKind, string[]> = {
   photo: ["image/jpeg", "image/png", "image/webp"],
@@ -15,6 +15,16 @@ const CONTENT_TYPES: Record<UploadKind, string[]> = {
     "audio/x-m4a",
     "audio/x-wav",
     "audio/wave",
+    "audio/webm",
+  ],
+  "chat-audio": [
+    "audio/webm",
+    "audio/mp4",
+    "audio/mpeg",
+    "audio/ogg",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/wave",
   ],
 };
 
@@ -22,6 +32,7 @@ const MAX_BYTES: Record<UploadKind, number> = {
   photo: 2 * 1024 * 1024,
   video: 50 * 1024 * 1024,
   audio: 15 * 1024 * 1024,
+  "chat-audio": 8 * 1024 * 1024,
 };
 
 export async function POST(request: Request): Promise<NextResponse> {
@@ -41,25 +52,49 @@ export async function POST(request: Request): Promise<NextResponse> {
         let kind: UploadKind = "photo";
         let title = "Untitled";
         let requestedTeacherId: string | undefined;
+        let threadId: string | undefined;
         if (clientPayload) {
           try {
             const parsed = JSON.parse(clientPayload) as {
               kind?: string;
               title?: string;
               teacherId?: string;
+              threadId?: string;
             };
             if (
               parsed.kind === "photo" ||
               parsed.kind === "video" ||
-              parsed.kind === "audio"
+              parsed.kind === "audio" ||
+              parsed.kind === "chat-audio"
             ) {
               kind = parsed.kind;
             }
             if (parsed.title?.trim()) title = parsed.title.trim();
             if (parsed.teacherId) requestedTeacherId = parsed.teacherId;
+            if (parsed.threadId) threadId = parsed.threadId;
           } catch {
             throw new Error("Invalid upload payload");
           }
+        }
+
+        if (kind === "chat-audio") {
+          if (!threadId) throw new Error("threadId required");
+          const thread = await getChatThread(threadId);
+          if (!thread) throw new Error("Chat not found");
+          const allowed =
+            (user.role === "student" && thread.studentId === user.id) ||
+            (user.role === "teacher" && thread.teacherId === user.teacherId);
+          if (!allowed) throw new Error("Not authorized");
+          const prefix = `chat/${threadId}/`;
+          if (!pathname.startsWith(prefix)) {
+            throw new Error("Invalid upload path");
+          }
+          return {
+            allowedContentTypes: CONTENT_TYPES["chat-audio"],
+            maximumSizeInBytes: MAX_BYTES["chat-audio"],
+            addRandomSuffix: true,
+            tokenPayload: JSON.stringify({ threadId, kind, userId: user.id }),
+          };
         }
 
         let teacherId: string;

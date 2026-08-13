@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { upload } from "@vercel/blob/client";
 import type { ChatMessage } from "@/lib/types";
 import type { ChatLang } from "@/lib/translate";
 import {
@@ -46,6 +47,17 @@ function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
   return w.SpeechRecognition || w.webkitSpeechRecognition || null;
 }
 
+function pickAudioMime(): string | undefined {
+  if (typeof MediaRecorder === "undefined") return undefined;
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/ogg",
+  ];
+  return candidates.find((t) => MediaRecorder.isTypeSupported(t));
+}
+
 function byNewest(a: ChatMessage, b: ChatMessage) {
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 }
@@ -69,10 +81,14 @@ export function LessonChatClient({
   const [clearing, setClearing] = useState(false);
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const holdingRef = useRef<ChatLang | null>(null);
   const finalsRef = useRef("");
   const interimRef = useRef("");
   const sendQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const stoppingRef = useRef(false);
 
   const leftMessages = useMemo(
     () => messages.filter((m) => m.originalLang === "en").sort(byNewest),
@@ -91,19 +107,75 @@ export function LessonChatClient({
     );
   }
 
-  function sendFinal(text: string, originalLang: ChatLang) {
+  function stopMediaTracks() {
+    mediaStreamRef.current?.getTracks().forEach((tr) => tr.stop());
+    mediaStreamRef.current = null;
+  }
+
+  async function uploadAudioBlob(blob: Blob): Promise<string | undefined> {
+    if (!blob.size) return undefined;
+    const ext = blob.type.includes("mp4")
+      ? "mp4"
+      : blob.type.includes("ogg")
+        ? "ogg"
+        : "webm";
+    const pathname = `chat/${threadId}/rec-${Date.now()}.${ext}`;
+    try {
+      const result = await upload(pathname, blob, {
+        access: "public",
+        handleUploadUrl: "/api/blob/upload",
+        contentType: blob.type || "audio/webm",
+        clientPayload: JSON.stringify({
+          kind: "chat-audio",
+          threadId,
+          title: "chat-recording",
+        }),
+      });
+      return result.url;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function sendFinal(
+    text: string,
+    originalLang: ChatLang,
+    audioBlob: Blob | null,
+  ) {
     const payload = text.trim();
-    if (!payload) return;
+    if (!payload && !audioBlob?.size) return;
+    const displayText =
+      payload ||
+      (lang === "ar" ? "(تسجيل صوتي)" : "(voice recording)");
     const tempId = `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    setPending((prev) => [{ id: tempId, originalLang, text: payload }, ...prev]);
+    setPending((prev) => [
+      { id: tempId, originalLang, text: displayText },
+      ...prev,
+    ]);
     setInterim("");
 
     sendQueueRef.current = sendQueueRef.current.then(async () => {
       setError(null);
+      let audioUrl: string | undefined;
+      if (audioBlob && audioBlob.size > 0) {
+        audioUrl = await uploadAudioBlob(audioBlob);
+      }
+      if (!payload) {
+        setPending((prev) => prev.filter((p) => p.id !== tempId));
+        if (!audioUrl) {
+          setError(
+            lang === "ar"
+              ? "لم يُلتقط نص ولا صوت"
+              : "No speech or audio captured",
+          );
+        }
+        return;
+      }
       const res = await sendChatMessageAction({
         threadId,
         text: payload,
         originalLang,
+        audioUrl,
       });
       setPending((prev) => prev.filter((p) => p.id !== tempId));
       if (!res.ok) {
@@ -115,8 +187,10 @@ export function LessonChatClient({
   }
 
   function stopHoldAndTranslate() {
+    if (stoppingRef.current) return;
     const side = holdingRef.current;
     if (!side) return;
+    stoppingRef.current = true;
     holdingRef.current = null;
     setHolding(null);
 
@@ -132,11 +206,38 @@ export function LessonChatClient({
     finalsRef.current = "";
     interimRef.current = "";
     setInterim("");
-    if (text) sendFinal(text, side);
+
+    const recorder = mediaRecorderRef.current;
+    mediaRecorderRef.current = null;
+
+    const finish = (audioBlob: Blob | null) => {
+      stopMediaTracks();
+      stoppingRef.current = false;
+      sendFinal(text, side, audioBlob);
+    };
+
+    if (recorder && recorder.state !== "inactive") {
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
+        audioChunksRef.current = [];
+        finish(blob);
+      };
+      try {
+        recorder.stop();
+      } catch {
+        audioChunksRef.current = [];
+        finish(null);
+      }
+    } else {
+      audioChunksRef.current = [];
+      finish(null);
+    }
   }
 
-  function startHold(side: ChatLang) {
-    if (holdingRef.current) return;
+  async function startHold(side: ChatLang) {
+    if (holdingRef.current || stoppingRef.current) return;
     setError(null);
     const Ctor = getSpeechRecognition();
     if (!Ctor) {
@@ -150,9 +251,38 @@ export function LessonChatClient({
 
     finalsRef.current = "";
     interimRef.current = "";
+    audioChunksRef.current = [];
     holdingRef.current = side;
     setHolding(side);
     setInterim("");
+
+    // Start audio recording (original voice)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (holdingRef.current !== side) {
+        stream.getTracks().forEach((tr) => tr.stop());
+        return;
+      }
+      mediaStreamRef.current = stream;
+      const mime = pickAudioMime();
+      const recorder = mime
+        ? new MediaRecorder(stream, { mimeType: mime })
+        : new MediaRecorder(stream);
+      recorder.ondataavailable = (ev) => {
+        if (ev.data.size > 0) audioChunksRef.current.push(ev.data);
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start(200);
+    } catch {
+      setError(
+        lang === "ar"
+          ? "اسمح بالميكروفون لتسجيل الصوت"
+          : "Allow microphone to record audio",
+      );
+      holdingRef.current = null;
+      setHolding(null);
+      return;
+    }
 
     const rec = new Ctor();
     rec.lang = side === "ar" ? "ar-EG" : "en-US";
@@ -186,7 +316,6 @@ export function LessonChatClient({
       );
     };
     rec.onend = () => {
-      // If still holding (browser ended early), restart while pressed
       if (holdingRef.current === side) {
         try {
           rec.start();
@@ -199,6 +328,12 @@ export function LessonChatClient({
     try {
       rec.start();
     } catch {
+      try {
+        mediaRecorderRef.current?.stop();
+      } catch {
+        /* ignore */
+      }
+      stopMediaTracks();
       holdingRef.current = null;
       setHolding(null);
       setError(
@@ -214,7 +349,6 @@ export function LessonChatClient({
     });
   }, [threadId]);
 
-  // Full refetch so clears sync to the peer
   useEffect(() => {
     const id = window.setInterval(() => {
       void (async () => {
@@ -235,6 +369,12 @@ export function LessonChatClient({
       } catch {
         /* ignore */
       }
+      try {
+        mediaRecorderRef.current?.stop();
+      } catch {
+        /* ignore */
+      }
+      stopMediaTracks();
     };
   }, []);
 
@@ -273,7 +413,7 @@ export function LessonChatClient({
         onPointerDown={(e) => {
           e.preventDefault();
           (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
-          startHold(side);
+          void startHold(side);
         }}
         onPointerUp={(e) => {
           e.preventDefault();
@@ -291,6 +431,34 @@ export function LessonChatClient({
       >
         {active ? t.recording : label}
       </button>
+    );
+  }
+
+  function MessageCard({
+    text,
+    audioUrl,
+    dir,
+    cardClass,
+  }: {
+    text: string;
+    audioUrl?: string;
+    dir: "rtl" | "ltr";
+    cardClass: string;
+  }) {
+    return (
+      <div className={cardClass}>
+        <p className="whitespace-pre-wrap" dir={dir}>
+          {text}
+        </p>
+        {audioUrl ? (
+          <audio
+            controls
+            preload="metadata"
+            src={audioUrl}
+            className="mt-2 w-full max-w-full"
+          />
+        ) : null}
+      </div>
     );
   }
 
@@ -329,14 +497,17 @@ export function LessonChatClient({
               <p className="whitespace-pre-wrap" dir={dir}>
                 {p.text}
               </p>
+              <p className="mt-1 text-[11px] text-ink-muted">{t.uploadingAudio}</p>
             </div>
           ))}
           {items.map((m) => (
-            <div key={m.id} className={cardClass}>
-              <p className="whitespace-pre-wrap" dir={dir}>
-                {m.translatedText}
-              </p>
-            </div>
+            <MessageCard
+              key={m.id}
+              text={m.translatedText}
+              audioUrl={m.audioUrl}
+              dir={dir}
+              cardClass={cardClass}
+            />
           ))}
           {items.length === 0 &&
             pendingItems.length === 0 &&

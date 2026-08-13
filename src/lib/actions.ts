@@ -861,6 +861,7 @@ export async function sendChatMessageAction(input: {
   threadId: string;
   text: string;
   originalLang: ChatLang;
+  audioUrl?: string;
 }) {
   const { user } = await requireSession(["student", "teacher"]);
   const thread = await getChatThread(input.threadId);
@@ -874,14 +875,26 @@ export async function sendChatMessageAction(input: {
   const text = input.text.trim();
   if (!text) return { ok: false as const, error: "Empty message" };
 
-  // Role defaults: student speaks English, teacher speaks Arabic
-  // but trust client lang if valid.
   let originalLang: ChatLang = input.originalLang;
   if (originalLang !== "en" && originalLang !== "ar") {
     originalLang = user.role === "teacher" ? "ar" : "en";
   }
   const translatedLang: ChatLang = originalLang === "en" ? "ar" : "en";
   const translatedText = await translateText(text, originalLang, translatedLang);
+
+  let audioUrl = input.audioUrl?.trim() || undefined;
+  if (audioUrl) {
+    try {
+      const host = new URL(audioUrl).hostname;
+      const ok =
+        host.endsWith(".public.blob.vercel-storage.com") ||
+        host === "public.blob.vercel-storage.com" ||
+        host.endsWith(".blob.vercel-storage.com");
+      if (!ok) audioUrl = undefined;
+    } catch {
+      audioUrl = undefined;
+    }
+  }
 
   const message = await addChatMessage({
     id: uid("cmsg"),
@@ -891,6 +904,7 @@ export async function sendChatMessageAction(input: {
     originalLang,
     translatedText,
     translatedLang,
+    audioUrl,
     createdAt: new Date().toISOString(),
   });
 

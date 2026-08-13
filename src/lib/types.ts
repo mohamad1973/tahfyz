@@ -106,6 +106,7 @@ export interface ChatMessage {
   originalLang: "en" | "ar";
   translatedText: string;
   translatedLang: "en" | "ar";
+  audioUrl?: string;
   createdAt: string;
 }
 

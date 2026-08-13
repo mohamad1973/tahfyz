@@ -637,6 +637,7 @@ export async function getChatMessages(
     originalLang: row.originalLang as "en" | "ar",
     translatedText: row.translatedText,
     translatedLang: row.translatedLang as "en" | "ar",
+    audioUrl: row.audioUrl || undefined,
     createdAt: row.createdAt.toISOString(),
   }));
 }
@@ -653,6 +654,7 @@ export async function addChatMessage(
       originalLang: message.originalLang,
       translatedText: message.translatedText,
       translatedLang: message.translatedLang,
+      audioUrl: message.audioUrl || null,
       createdAt: new Date(message.createdAt),
     },
   });
@@ -668,6 +670,7 @@ export async function addChatMessage(
     originalLang: row.originalLang as "en" | "ar",
     translatedText: row.translatedText,
     translatedLang: row.translatedLang as "en" | "ar",
+    audioUrl: row.audioUrl || undefined,
     createdAt: row.createdAt.toISOString(),
   };
 }
