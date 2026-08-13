@@ -382,6 +382,7 @@ export async function registerStudentAction(formData: FormData) {
     role: "student",
     createdAt: new Date().toISOString(),
   });
+  await linkGuestBookingsToStudent(user);
   await setSession(user);
   redirect("/student");
 }
@@ -469,44 +470,6 @@ export async function registerParentAction(formData: FormData) {
   });
   await setSession(user);
   redirect("/parent");
-}
-
-export async function registerStudentAction(formData: FormData) {
-  const name = String(formData.get("name") || "").trim();
-  const email = String(formData.get("email") || "")
-    .toLowerCase()
-    .trim();
-  const password = String(formData.get("password") || "");
-  let username = normalizeUsername(String(formData.get("username") || ""));
-  if (!username && email) username = usernameFromEmail(email);
-  if (!name || !username || password.length < 6) {
-    return { ok: false as const, error: "Fill all fields (password 6+ chars)" };
-  }
-  if (!isValidUsername(username)) {
-    return {
-      ok: false as const,
-      error: "Username: 3–32 chars, letters/numbers/_ only",
-    };
-  }
-  if (await getUserByUsername(username)) {
-    return { ok: false as const, error: "Username already taken" };
-  }
-  if (email && (await getUserByEmail(email))) {
-    return { ok: false as const, error: "Email already registered" };
-  }
-  const user = await addUser({
-    id: uid("usr"),
-    username,
-    email: email || undefined,
-    passwordHash: await hashPassword(password),
-    name,
-    role: "student",
-    createdAt: new Date().toISOString(),
-  });
-  // Attach any previous guest bookings that used this email
-  await linkGuestBookingsToStudent(user);
-  await setSession(user);
-  redirect("/student");
 }
 
 async function resolveManagedTeacherId(
