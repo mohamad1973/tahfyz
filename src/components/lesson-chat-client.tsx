@@ -90,6 +90,8 @@ export function LessonChatClient({
   const interimRef = useRef("");
   const sendQueueRef = useRef<Promise<void>>(Promise.resolve());
   const stoppingRef = useRef(false);
+  const speechDelayTimerRef = useRef<number | undefined>(undefined);
+  const recorderMimeRef = useRef("audio/webm;codecs=opus");
 
   const leftMessages = useMemo(
     () => messages.filter((m) => m.originalLang === "en").sort(byNewest),
@@ -113,33 +115,57 @@ export function LessonChatClient({
     mediaStreamRef.current = null;
   }
 
+  function clearSpeechDelay() {
+    if (speechDelayTimerRef.current) {
+      window.clearTimeout(speechDelayTimerRef.current);
+      speechDelayTimerRef.current = undefined;
+    }
+  }
+
   async function uploadAudioBlob(blob: Blob): Promise<string> {
-    if (!blob.size) {
+    if (!blob.size || blob.size < 500) {
       throw new Error(
-        lang === "ar" ? "التسجيل فارغ" : "Empty recording",
+        lang === "ar" ? "التسجيل قصير أو فارغ" : "Recording too short or empty",
       );
     }
-    const rawType = blob.type || "audio/webm";
-    const contentType = rawType.split(";")[0].trim() || "audio/webm";
-    const ext = contentType.includes("mp4")
+    // Keep full MIME including codecs for correct playback
+    const fullType =
+      blob.type || recorderMimeRef.current || "audio/webm;codecs=opus";
+    const baseType = fullType.split(";")[0].trim() || "audio/webm";
+    const ext = baseType.includes("mp4")
       ? "mp4"
-      : contentType.includes("ogg")
+      : baseType.includes("ogg")
         ? "ogg"
         : "webm";
     const pathname = `chat/${threadId}/rec-${Date.now()}.${ext}`;
-    // Normalize blob type for Blob token allow-list
-    const file = new File([blob], `rec.${ext}`, { type: contentType });
-    const result = await upload(pathname, file, {
-      access: "public",
-      handleUploadUrl: "/api/blob/upload",
-      contentType,
-      clientPayload: JSON.stringify({
-        kind: "chat-audio",
-        threadId,
-        title: "chat-recording",
-      }),
-    });
-    return result.url;
+    const file = new File([blob], `rec.${ext}`, { type: fullType });
+    try {
+      const result = await upload(pathname, file, {
+        access: "public",
+        handleUploadUrl: "/api/blob/upload",
+        contentType: fullType,
+        clientPayload: JSON.stringify({
+          kind: "chat-audio",
+          threadId,
+          title: "chat-recording",
+        }),
+      });
+      return result.url;
+    } catch {
+      // Fallback without codec suffix if token allow-list is strict
+      const file2 = new File([blob], `rec.${ext}`, { type: baseType });
+      const result = await upload(pathname, file2, {
+        access: "public",
+        handleUploadUrl: "/api/blob/upload",
+        contentType: baseType,
+        clientPayload: JSON.stringify({
+          kind: "chat-audio",
+          threadId,
+          title: "chat-recording",
+        }),
+      });
+      return result.url;
+    }
   }
 
   function sendFinal(
@@ -162,7 +188,7 @@ export function LessonChatClient({
     sendQueueRef.current = sendQueueRef.current.then(async () => {
       setError(null);
       let audioUrl: string | undefined;
-      if (audioBlob && audioBlob.size > 0) {
+      if (audioBlob && audioBlob.size >= 500) {
         try {
           audioUrl = await uploadAudioBlob(audioBlob);
         } catch (e) {
@@ -172,6 +198,12 @@ export function LessonChatClient({
               : `Audio upload failed: ${e instanceof Error ? e.message : "error"}`,
           );
         }
+      } else if (audioBlob && audioBlob.size > 0 && audioBlob.size < 500) {
+        setError(
+          lang === "ar"
+            ? "التسجيل قصير جداً — اضغط مطوّلاً وتكلم ثم ارفع"
+            : "Recording too short — hold longer while speaking",
+        );
       }
       if (!payload) {
         setPending((prev) => prev.filter((p) => p.id !== tempId));
@@ -198,11 +230,40 @@ export function LessonChatClient({
       if (!audioUrl) {
         setError(
           lang === "ar"
-            ? "تم حفظ الترجمة لكن الصوت لم يُرفع — تحقق من Blob على Vercel"
-            : "Translation saved but audio did not upload — check Blob on Vercel",
+            ? "تم حفظ الترجمة لكن الصوت لم يُرفع بشكل صحيح — أعد التسجيل"
+            : "Translation saved but audio failed — please record again",
         );
       }
       appendMessage(res.message);
+    });
+  }
+
+  function stopRecorderToBlob(recorder: MediaRecorder): Promise<Blob | null> {
+    return new Promise((resolve) => {
+      const chunks: Blob[] = [];
+      const mime =
+        recorder.mimeType ||
+        recorderMimeRef.current ||
+        "audio/webm;codecs=opus";
+
+      recorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) chunks.push(ev.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: mime });
+        resolve(blob.size >= 500 ? blob : blob.size > 0 ? blob : null);
+      };
+      recorder.onerror = () => resolve(null);
+
+      try {
+        if (recorder.state === "recording") {
+          recorder.stop();
+        } else {
+          resolve(null);
+        }
+      } catch {
+        resolve(null);
+      }
     });
   }
 
@@ -213,10 +274,13 @@ export function LessonChatClient({
     stoppingRef.current = true;
     holdingRef.current = null;
     setHolding(null);
+    clearSpeechDelay();
 
+    // Stop speech first to release mic conflict
     const rec = recognitionRef.current;
     recognitionRef.current = null;
     try {
+      rec?.abort?.();
       rec?.stop();
     } catch {
       /* ignore */
@@ -237,76 +301,28 @@ export function LessonChatClient({
     };
 
     if (recorder && recorder.state !== "inactive") {
-      recorder.ondataavailable = (ev) => {
-        if (ev.data.size > 0) audioChunksRef.current.push(ev.data);
-      };
-      recorder.onstop = () => {
-        const mime = (recorder.mimeType || "audio/webm").split(";")[0];
-        const blob = new Blob(audioChunksRef.current, { type: mime });
-        audioChunksRef.current = [];
-        finish(blob.size > 0 ? blob : null);
-      };
-      try {
-        recorder.stop();
-      } catch {
-        audioChunksRef.current = [];
-        finish(null);
-      }
+      // Small delay so speech release settles before stopping the recorder
+      window.setTimeout(() => {
+        void stopRecorderToBlob(recorder).then((blob) => {
+          if (blob && blob.size < 500) {
+            setError(
+              lang === "ar"
+                ? "الصوت المسجّل ضعيف أو صامت — أعد المحاولة مع الإبقاء على الزر أثناء الكلام"
+                : "Recorded audio is weak/silent — hold the button while speaking and try again",
+            );
+            finish(null);
+            return;
+          }
+          finish(blob);
+        });
+      }, 80);
     } else {
       audioChunksRef.current = [];
       finish(null);
     }
   }
 
-  async function startHold(side: ChatLang) {
-    if (holdingRef.current || stoppingRef.current) return;
-    setError(null);
-    const Ctor = getSpeechRecognition();
-    if (!Ctor) {
-      setError(
-        lang === "ar"
-          ? "المتصفح لا يدعم التعرف على الصوت. استخدم Chrome."
-          : "Speech recognition is not supported. Use Chrome.",
-      );
-      return;
-    }
-
-    finalsRef.current = "";
-    interimRef.current = "";
-    audioChunksRef.current = [];
-    holdingRef.current = side;
-    setHolding(side);
-    setInterim("");
-
-    // Start audio recording (original voice)
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (holdingRef.current !== side) {
-        stream.getTracks().forEach((tr) => tr.stop());
-        return;
-      }
-      mediaStreamRef.current = stream;
-      const mime = pickAudioMime();
-      const recorder = mime
-        ? new MediaRecorder(stream, { mimeType: mime })
-        : new MediaRecorder(stream);
-      recorder.ondataavailable = (ev) => {
-        if (ev.data.size > 0) audioChunksRef.current.push(ev.data);
-      };
-      mediaRecorderRef.current = recorder;
-      // Single complete file on stop — timeslice chunks often play only ~1s
-      recorder.start();
-    } catch {
-      setError(
-        lang === "ar"
-          ? "اسمح بالميكروفون لتسجيل الصوت"
-          : "Allow microphone to record audio",
-      );
-      holdingRef.current = null;
-      setHolding(null);
-      return;
-    }
-
+  function beginSpeechRecognition(Ctor: new () => SpeechRecognitionLike, side: ChatLang) {
     const rec = new Ctor();
     rec.lang = side === "ar" ? "ar-EG" : "en-US";
     rec.continuous = true;
@@ -351,18 +367,71 @@ export function LessonChatClient({
     try {
       rec.start();
     } catch {
-      try {
-        mediaRecorderRef.current?.stop();
-      } catch {
-        /* ignore */
+      /* ignore — recording can still succeed */
+    }
+  }
+
+  async function startHold(side: ChatLang) {
+    if (holdingRef.current || stoppingRef.current) return;
+    setError(null);
+    const Ctor = getSpeechRecognition();
+    if (!Ctor) {
+      setError(
+        lang === "ar"
+          ? "المتصفح لا يدعم التعرف على الصوت. استخدم Chrome."
+          : "Speech recognition is not supported. Use Chrome.",
+      );
+      return;
+    }
+
+    finalsRef.current = "";
+    interimRef.current = "";
+    audioChunksRef.current = [];
+    holdingRef.current = side;
+    setHolding(side);
+    setInterim("");
+    clearSpeechDelay();
+
+    // Start MediaRecorder first (before Web Speech) to reduce silent captures
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          channelCount: 1,
+        },
+      });
+      if (holdingRef.current !== side) {
+        stream.getTracks().forEach((tr) => tr.stop());
+        return;
       }
-      stopMediaTracks();
+      mediaStreamRef.current = stream;
+      const mime = pickAudioMime();
+      recorderMimeRef.current = mime || "audio/webm;codecs=opus";
+      const recorder = mime
+        ? new MediaRecorder(stream, { mimeType: mime })
+        : new MediaRecorder(stream);
+      recorder.ondataavailable = (ev) => {
+        if (ev.data.size > 0) audioChunksRef.current.push(ev.data);
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+    } catch {
+      setError(
+        lang === "ar"
+          ? "اسمح بالميكروفون لتسجيل الصوت"
+          : "Allow microphone to record audio",
+      );
       holdingRef.current = null;
       setHolding(null);
-      setError(
-        lang === "ar" ? "تعذر بدء الميكروفون" : "Could not start microphone",
-      );
+      return;
     }
+
+    // Delay STT so MediaRecorder grabs the mic stream first
+    speechDelayTimerRef.current = window.setTimeout(() => {
+      if (holdingRef.current !== side) return;
+      beginSpeechRecognition(Ctor, side);
+    }, 150);
   }
 
   useEffect(() => {
@@ -386,6 +455,7 @@ export function LessonChatClient({
   useEffect(() => {
     return () => {
       holdingRef.current = null;
+      clearSpeechDelay();
       try {
         recognitionRef.current?.abort?.();
         recognitionRef.current?.stop();
