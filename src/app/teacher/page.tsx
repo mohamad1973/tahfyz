@@ -59,12 +59,13 @@ export default async function TeacherDashboard() {
       <section className="mt-8">
         <h2 className="font-display text-xl">شات الدرس مع الطلاب</h2>
         <p className="mt-1 text-sm text-ink-muted">
-          تكلم بالعربية → يظهر النص عربي والترجمة إنجليزي للطالب ولك.
+          تكلم بالعربية → يظهر النص عربي والترجمة إنجليزي للطالب ولك. الشات يفتح
+          بعد الحجز (من غير شرط الدفع).
         </p>
         <ul className="mt-3 space-y-2">
           {students.length === 0 && (
             <li className="text-sm text-ink-muted">
-              يظهر الطلاب بعد تأكيد حجز مدفوع.
+              يظهر الطلاب بعد ما يعملوا حجز (حتى لو لسه ما دفعوش).
             </li>
           )}
           {students.map((s) =>

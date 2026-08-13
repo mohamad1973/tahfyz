@@ -523,14 +523,30 @@ export async function expireStaleHolds(): Promise<void> {
   });
 }
 
+export async function hasBookedLesson(
+  teacherId: string,
+  studentId: string,
+): Promise<boolean> {
+  const student = await prisma.user.findUnique({ where: { id: studentId } });
+  const count = await prisma.booking.count({
+    where: {
+      teacherId,
+      status: { in: ["pending_payment", "confirmed"] },
+      OR: [
+        { studentId },
+        ...(student?.email ? [{ guestEmail: student.email }] : []),
+      ],
+    },
+  });
+  return count > 0;
+}
+
+/** @deprecated use hasBookedLesson */
 export async function hasConfirmedLesson(
   teacherId: string,
   studentId: string,
 ): Promise<boolean> {
-  const count = await prisma.booking.count({
-    where: { teacherId, studentId, status: "confirmed" },
-  });
-  return count > 0;
+  return hasBookedLesson(teacherId, studentId);
 }
 
 export async function getOrCreateChatThread(
@@ -659,8 +675,15 @@ export async function addChatMessage(
 export async function listStudentTeacherPairs(studentId: string): Promise<
   { teacherId: string }[]
 > {
+  const student = await prisma.user.findUnique({ where: { id: studentId } });
   const rows = await prisma.booking.findMany({
-    where: { studentId, status: "confirmed" },
+    where: {
+      status: { in: ["pending_payment", "confirmed"] },
+      OR: [
+        { studentId },
+        ...(student?.email ? [{ guestEmail: student.email }] : []),
+      ],
+    },
     distinct: ["teacherId"],
     select: { teacherId: true },
   });
@@ -671,12 +694,32 @@ export async function listTeacherStudentPairs(teacherId: string): Promise<
   { studentId: string }[]
 > {
   const rows = await prisma.booking.findMany({
-    where: { teacherId, status: "confirmed", studentId: { not: null } },
+    where: {
+      teacherId,
+      status: { in: ["pending_payment", "confirmed"] },
+      studentId: { not: null },
+    },
     distinct: ["studentId"],
     select: { studentId: true },
   });
   return rows
     .filter((r): r is { studentId: string } => !!r.studentId)
     .map((r) => ({ studentId: r.studentId }));
+}
+
+export async function linkGuestBookingsToStudent(student: {
+  id: string;
+  email?: string;
+}): Promise<number> {
+  if (!student.email) return 0;
+  const result = await prisma.booking.updateMany({
+    where: {
+      guestEmail: student.email.toLowerCase(),
+      studentId: null,
+      status: { in: ["pending_payment", "confirmed"] },
+    },
+    data: { studentId: student.id },
+  });
+  return result.count;
 }
 

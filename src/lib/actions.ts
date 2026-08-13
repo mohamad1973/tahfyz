@@ -18,7 +18,8 @@ import {
   getUserByEmail,
   getUserById,
   getUserByUsername,
-  hasConfirmedLesson,
+  hasBookedLesson,
+  linkGuestBookingsToStudent,
   listStudentTeacherPairs,
   listTeacherStudentPairs,
   replaceAvailability,
@@ -40,6 +41,7 @@ import { buildCalendarWeek, buildOpenSlots } from "./slots";
 import {
   clearSession,
   dashboardPath,
+  getSession,
   requireSession,
   setSession,
 } from "./auth";
@@ -112,13 +114,23 @@ export async function createGuestBooking(input: z.infer<typeof bookingSchema>) {
     Date.now() + HOLD_HOURS * 60 * 60 * 1000,
   ).toISOString();
 
+  const email = parsed.guestEmail.toLowerCase();
+  let studentId: string | undefined;
+  const session = await getSession();
+  if (session?.role === "student") {
+    studentId = session.userId;
+  } else {
+    const existing = await getUserByEmail(email);
+    if (existing?.role === "student") studentId = existing.id;
+  }
+
   const booking = await addBooking({
     id: uid("bk"),
     teacherId: parsed.teacherId,
     slotStart: parsed.slotStart,
     slotEnd: parsed.slotEnd,
     guestName: parsed.guestName,
-    guestEmail: parsed.guestEmail.toLowerCase(),
+    guestEmail: email,
     phone: parsed.phone,
     whatsapp: parsed.whatsapp,
     timezone: parsed.timezone,
@@ -128,16 +140,19 @@ export async function createGuestBooking(input: z.infer<typeof bookingSchema>) {
     createdAt: new Date().toISOString(),
     amountUsd: teacher.priceUsd ?? 25,
     paymentMethod: "manual",
+    studentId,
   });
 
   revalidatePath("/admin");
   revalidatePath("/teachers");
   revalidatePath(`/teachers/${parsed.teacherId}`);
   revalidatePath("/teacher");
+  revalidatePath("/student");
   return {
     ok: true as const,
     bookingId: booking.id,
     amountUsd: booking.amountUsd,
+    studentLinked: Boolean(studentId),
   };
 }
 
@@ -371,6 +386,44 @@ export async function registerParentAction(formData: FormData) {
   });
   await setSession(user);
   redirect("/parent");
+}
+
+export async function registerStudentAction(formData: FormData) {
+  const name = String(formData.get("name") || "").trim();
+  const email = String(formData.get("email") || "")
+    .toLowerCase()
+    .trim();
+  const password = String(formData.get("password") || "");
+  let username = normalizeUsername(String(formData.get("username") || ""));
+  if (!username && email) username = usernameFromEmail(email);
+  if (!name || !username || password.length < 6) {
+    return { ok: false as const, error: "Fill all fields (password 6+ chars)" };
+  }
+  if (!isValidUsername(username)) {
+    return {
+      ok: false as const,
+      error: "Username: 3–32 chars, letters/numbers/_ only",
+    };
+  }
+  if (await getUserByUsername(username)) {
+    return { ok: false as const, error: "Username already taken" };
+  }
+  if (email && (await getUserByEmail(email))) {
+    return { ok: false as const, error: "Email already registered" };
+  }
+  const user = await addUser({
+    id: uid("usr"),
+    username,
+    email: email || undefined,
+    passwordHash: await hashPassword(password),
+    name,
+    role: "student",
+    createdAt: new Date().toISOString(),
+  });
+  // Attach any previous guest bookings that used this email
+  await linkGuestBookingsToStudent(user);
+  await setSession(user);
+  redirect("/student");
 }
 
 async function resolveManagedTeacherId(
@@ -709,8 +762,13 @@ export async function setTeacherActiveAction(formData: FormData) {
 
 export async function openChatWithTeacherAction(teacherId: string) {
   const { user } = await requireSession(["student"]);
-  if (!(await hasConfirmedLesson(teacherId, user.id))) {
-    return { ok: false as const, error: "Need a confirmed lesson first" };
+  // Link any guest bookings that used this student's email
+  await linkGuestBookingsToStudent(user);
+  if (!(await hasBookedLesson(teacherId, user.id))) {
+    return {
+      ok: false as const,
+      error: "Book a lesson with this teacher first (payment not required)",
+    };
   }
   if (!(await getTeacher(teacherId))) {
     return { ok: false as const, error: "Teacher not found" };
@@ -722,8 +780,11 @@ export async function openChatWithTeacherAction(teacherId: string) {
 export async function openChatWithStudentAction(studentId: string) {
   const { user } = await requireSession(["teacher"]);
   const teacherId = user.teacherId!;
-  if (!(await hasConfirmedLesson(teacherId, studentId))) {
-    return { ok: false as const, error: "Need a confirmed lesson first" };
+  if (!(await hasBookedLesson(teacherId, studentId))) {
+    return {
+      ok: false as const,
+      error: "Student needs a booking with you first (payment not required)",
+    };
   }
   const student = await getUserById(studentId);
   if (!student || student.role !== "student") {

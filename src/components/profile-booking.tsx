@@ -26,15 +26,23 @@ export function ProfileBooking({ teacher }: { teacher: Teacher }) {
           Booking request received
         </p>
         <p className="mt-2 text-sm text-ink-muted">
-          Hour held on the calendar (${teacher.priceUsd}/hr). Complete payment
-          next.
+          Hour held on the calendar (${teacher.priceUsd}/hr). You can pay later —
+          lesson chat is available after booking if you have a student account.
         </p>
-        <a
-          href={`/booking/${bookingId}/pay`}
-          className="mt-4 inline-block rounded-xl bg-olive px-4 py-2 text-sm font-semibold text-card"
-        >
-          Continue to payment
-        </a>
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          <a
+            href={`/booking/${bookingId}/pay`}
+            className="inline-block rounded-xl bg-olive px-4 py-2 text-sm font-semibold text-card"
+          >
+            Continue to payment
+          </a>
+          <a
+            href="/login"
+            className="inline-block rounded-xl border border-line px-4 py-2 text-sm font-semibold"
+          >
+            Student login / register for chat
+          </a>
+        </div>
       </div>
     );
   }
