@@ -65,6 +65,7 @@ export type Dictionary = {
   holdToRecord: string;
   recording: string;
   uploadingAudio: string;
+  deleteLine: string;
   resetPassword: string;
   email: string;
   sendResetLink: string;
@@ -149,6 +150,7 @@ export const dictionaries: Record<Lang, Dictionary> = {
     holdToRecord: "اضغط باستمرار للتسجيل — ارفع للإرسال والترجمة",
     recording: "يسجّل… ارفع للإرسال",
     uploadingAudio: "يرفع الصوت…",
+    deleteLine: "حذف",
     resetPassword: "إعادة تعيين كلمة المرور",
     email: "البريد الإلكتروني",
     sendResetLink: "إرسال رابط الاسترجاع",
@@ -235,6 +237,7 @@ export const dictionaries: Record<Lang, Dictionary> = {
     holdToRecord: "Hold to record — release to send and translate",
     recording: "Recording… release to send",
     uploadingAudio: "Uploading audio…",
+    deleteLine: "Delete",
     resetPassword: "Reset password",
     email: "Email",
     sendResetLink: "Send reset link",

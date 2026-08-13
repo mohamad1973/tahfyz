@@ -19,12 +19,15 @@ const CONTENT_TYPES: Record<UploadKind, string[]> = {
   ],
   "chat-audio": [
     "audio/webm",
+    "audio/webm;codecs=opus",
     "audio/mp4",
     "audio/mpeg",
     "audio/ogg",
+    "audio/ogg;codecs=opus",
     "audio/wav",
     "audio/x-wav",
     "audio/wave",
+    "audio/x-m4a",
   ],
 };
 
@@ -90,7 +93,19 @@ export async function POST(request: Request): Promise<NextResponse> {
             throw new Error("Invalid upload path");
           }
           return {
-            allowedContentTypes: CONTENT_TYPES["chat-audio"],
+            // Omit strict list issues with codec suffixes; allow common audio types
+            allowedContentTypes: [
+              "audio/webm",
+              "audio/webm;codecs=opus",
+              "audio/mp4",
+              "audio/mpeg",
+              "audio/ogg",
+              "audio/ogg;codecs=opus",
+              "audio/wav",
+              "audio/x-wav",
+              "audio/wave",
+              "audio/x-m4a",
+            ],
             maximumSizeInBytes: MAX_BYTES["chat-audio"],
             addRandomSuffix: true,
             tokenPayload: JSON.stringify({ threadId, kind, userId: user.id }),

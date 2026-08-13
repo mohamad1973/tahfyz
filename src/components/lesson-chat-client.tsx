@@ -6,6 +6,7 @@ import type { ChatMessage } from "@/lib/types";
 import type { ChatLang } from "@/lib/translate";
 import {
   clearChatThreadAction,
+  deleteChatMessageAction,
   fetchChatMessagesAction,
   sendChatMessageAction,
 } from "@/lib/actions";
@@ -112,29 +113,33 @@ export function LessonChatClient({
     mediaStreamRef.current = null;
   }
 
-  async function uploadAudioBlob(blob: Blob): Promise<string | undefined> {
-    if (!blob.size) return undefined;
-    const ext = blob.type.includes("mp4")
+  async function uploadAudioBlob(blob: Blob): Promise<string> {
+    if (!blob.size) {
+      throw new Error(
+        lang === "ar" ? "التسجيل فارغ" : "Empty recording",
+      );
+    }
+    const rawType = blob.type || "audio/webm";
+    const contentType = rawType.split(";")[0].trim() || "audio/webm";
+    const ext = contentType.includes("mp4")
       ? "mp4"
-      : blob.type.includes("ogg")
+      : contentType.includes("ogg")
         ? "ogg"
         : "webm";
     const pathname = `chat/${threadId}/rec-${Date.now()}.${ext}`;
-    try {
-      const result = await upload(pathname, blob, {
-        access: "public",
-        handleUploadUrl: "/api/blob/upload",
-        contentType: blob.type || "audio/webm",
-        clientPayload: JSON.stringify({
-          kind: "chat-audio",
-          threadId,
-          title: "chat-recording",
-        }),
-      });
-      return result.url;
-    } catch {
-      return undefined;
-    }
+    // Normalize blob type for Blob token allow-list
+    const file = new File([blob], `rec.${ext}`, { type: contentType });
+    const result = await upload(pathname, file, {
+      access: "public",
+      handleUploadUrl: "/api/blob/upload",
+      contentType,
+      clientPayload: JSON.stringify({
+        kind: "chat-audio",
+        threadId,
+        title: "chat-recording",
+      }),
+    });
+    return result.url;
   }
 
   function sendFinal(
@@ -158,7 +163,15 @@ export function LessonChatClient({
       setError(null);
       let audioUrl: string | undefined;
       if (audioBlob && audioBlob.size > 0) {
-        audioUrl = await uploadAudioBlob(audioBlob);
+        try {
+          audioUrl = await uploadAudioBlob(audioBlob);
+        } catch (e) {
+          setError(
+            lang === "ar"
+              ? `فشل رفع الصوت: ${e instanceof Error ? e.message : "خطأ"}`
+              : `Audio upload failed: ${e instanceof Error ? e.message : "error"}`,
+          );
+        }
       }
       if (!payload) {
         setPending((prev) => prev.filter((p) => p.id !== tempId));
@@ -181,6 +194,13 @@ export function LessonChatClient({
       if (!res.ok) {
         setError(res.error);
         return;
+      }
+      if (!audioUrl) {
+        setError(
+          lang === "ar"
+            ? "تم حفظ الترجمة لكن الصوت لم يُرفع — تحقق من Blob على Vercel"
+            : "Translation saved but audio did not upload — check Blob on Vercel",
+        );
       }
       appendMessage(res.message);
     });
@@ -219,12 +239,13 @@ export function LessonChatClient({
     if (recorder && recorder.state !== "inactive") {
       recorder.onstop = () => {
         const blob = new Blob(audioChunksRef.current, {
-          type: recorder.mimeType || "audio/webm",
+          type: (recorder.mimeType || "audio/webm").split(";")[0],
         });
         audioChunksRef.current = [];
         finish(blob);
       };
       try {
+        if (recorder.state === "recording") recorder.requestData();
         recorder.stop();
       } catch {
         audioChunksRef.current = [];
@@ -434,12 +455,25 @@ export function LessonChatClient({
     );
   }
 
+  function onDeleteMessage(messageId: string) {
+    start(async () => {
+      const res = await deleteChatMessageAction(messageId);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+    });
+  }
+
   function MessageCard({
+    id,
     text,
     audioUrl,
     dir,
     cardClass,
   }: {
+    id: string;
     text: string;
     audioUrl?: string;
     dir: "rtl" | "ltr";
@@ -447,9 +481,19 @@ export function LessonChatClient({
   }) {
     return (
       <div className={cardClass}>
-        <p className="whitespace-pre-wrap" dir={dir}>
-          {text}
-        </p>
+        <div className="flex items-start justify-between gap-2">
+          <p className="min-w-0 flex-1 whitespace-pre-wrap" dir={dir}>
+            {text}
+          </p>
+          <button
+            type="button"
+            onClick={() => onDeleteMessage(id)}
+            className="shrink-0 rounded-md border border-danger/30 px-2 py-1 text-[11px] font-semibold text-danger hover:bg-danger/10"
+            title={t.deleteLine}
+          >
+            {t.deleteLine}
+          </button>
+        </div>
         {audioUrl ? (
           <audio
             controls
@@ -503,6 +547,7 @@ export function LessonChatClient({
           {items.map((m) => (
             <MessageCard
               key={m.id}
+              id={m.id}
               text={m.translatedText}
               audioUrl={m.audioUrl}
               dir={dir}

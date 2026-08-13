@@ -8,10 +8,12 @@ import {
   addUser,
   clearChatMessages,
   createTeacher,
+  deleteChatMessage,
   expireStaleHolds,
   getAvailability,
   getBookingById,
   getBookings,
+  getChatMessageById,
   getChatMessages,
   getChatThread,
   getOrCreateChatThread,
@@ -920,6 +922,20 @@ export async function clearChatThreadAction(threadId: string) {
     (user.role === "teacher" && thread.teacherId === user.teacherId);
   if (!allowed) return { ok: false as const, error: "Not authorized" };
   await clearChatMessages(threadId);
+  return { ok: true as const };
+}
+
+export async function deleteChatMessageAction(messageId: string) {
+  const { user } = await requireSession(["student", "teacher"]);
+  const message = await getChatMessageById(messageId);
+  if (!message) return { ok: false as const, error: "Message not found" };
+  const thread = await getChatThread(message.threadId);
+  if (!thread) return { ok: false as const, error: "Chat not found" };
+  const allowed =
+    (user.role === "student" && thread.studentId === user.id) ||
+    (user.role === "teacher" && thread.teacherId === user.teacherId);
+  if (!allowed) return { ok: false as const, error: "Not authorized" };
+  await deleteChatMessage(messageId);
   return { ok: true as const };
 }
 

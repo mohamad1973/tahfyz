@@ -684,6 +684,33 @@ export async function clearChatMessages(threadId: string): Promise<number> {
   return result.count;
 }
 
+export async function getChatMessageById(id: string) {
+  const row = await prisma.chatMessage.findUnique({ where: { id } });
+  if (!row) return null;
+  return {
+    id: row.id,
+    threadId: row.threadId,
+    senderId: row.senderId,
+    originalText: row.originalText,
+    originalLang: row.originalLang as "en" | "ar",
+    translatedText: row.translatedText,
+    translatedLang: row.translatedLang as "en" | "ar",
+    audioUrl: row.audioUrl || undefined,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+export async function deleteChatMessage(id: string): Promise<boolean> {
+  const row = await prisma.chatMessage.findUnique({ where: { id } });
+  if (!row) return false;
+  await prisma.chatMessage.delete({ where: { id } });
+  await prisma.chatThread.update({
+    where: { id: row.threadId },
+    data: { updatedAt: new Date() },
+  });
+  return true;
+}
+
 export async function listStudentTeacherPairs(studentId: string): Promise<
   { teacherId: string }[]
 > {
