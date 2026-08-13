@@ -672,6 +672,15 @@ export async function addChatMessage(
   };
 }
 
+export async function clearChatMessages(threadId: string): Promise<number> {
+  const result = await prisma.chatMessage.deleteMany({ where: { threadId } });
+  await prisma.chatThread.update({
+    where: { id: threadId },
+    data: { updatedAt: new Date() },
+  });
+  return result.count;
+}
+
 export async function listStudentTeacherPairs(studentId: string): Promise<
   { teacherId: string }[]
 > {

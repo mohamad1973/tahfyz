@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { ChatMessage } from "@/lib/types";
 import type { ChatLang } from "@/lib/translate";
 import {
+  clearChatThreadAction,
   fetchChatMessagesAction,
   sendChatMessageAction,
 } from "@/lib/actions";
@@ -15,6 +16,7 @@ type SpeechRecognitionLike = {
   interimResults: boolean;
   start: () => void;
   stop: () => void;
+  abort?: () => void;
   onresult:
     | ((ev: {
         resultIndex: number;
@@ -35,8 +37,6 @@ type PendingBubble = {
   text: string;
 };
 
-type SpeechLocale = "ar-EG" | "en-US";
-
 function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
   if (typeof window === "undefined") return null;
   const w = window as unknown as {
@@ -44,38 +44,6 @@ function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
     webkitSpeechRecognition?: new () => SpeechRecognitionLike;
   };
   return w.SpeechRecognition || w.webkitSpeechRecognition || null;
-}
-
-function detectSpeechLang(text: string, fallback: ChatLang): ChatLang {
-  if (/[\u0600-\u06FF]/.test(text)) return "ar";
-  if (/[A-Za-z]/.test(text)) return "en";
-  return fallback;
-}
-
-function localeToLang(locale: SpeechLocale): ChatLang {
-  return locale.startsWith("ar") ? "ar" : "en";
-}
-
-/** Drop garbage from wrong-language recognition sessions. */
-function shouldAcceptTranscript(
-  text: string,
-  sessionLocale: SpeechLocale,
-): boolean {
-  const trimmed = text.trim();
-  if (trimmed.length < 2) return false;
-  const hasAr = /[\u0600-\u06FF]/.test(trimmed);
-  const hasLatin = /[A-Za-z]/.test(trimmed);
-  const sessionLang = localeToLang(sessionLocale);
-
-  if (sessionLang === "ar") {
-    // Arabic session: require Arabic letters; ignore pure Latin noise
-    if (!hasAr) return false;
-    return true;
-  }
-  // English session: require Latin letters; ignore pure Arabic
-  if (!hasLatin) return false;
-  if (hasAr && !hasLatin) return false;
-  return true;
 }
 
 function byNewest(a: ChatMessage, b: ChatMessage) {
@@ -93,18 +61,18 @@ export function LessonChatClient({
 }) {
   const { t, lang } = useI18n();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [listening, setListening] = useState(false);
-  const [activeLocale, setActiveLocale] = useState<SpeechLocale>("ar-EG");
+  const [holding, setHolding] = useState<ChatLang | null>(null);
   const [interim, setInterim] = useState("");
-  const [interimLang, setInterimLang] = useState<ChatLang | null>(null);
   const [pending, setPending] = useState<PendingBubble[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [, start] = useTransition();
+  const [clearing, setClearing] = useState(false);
+
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  const lastStamp = useRef<string | undefined>(undefined);
-  const aliveRef = useRef(true);
+  const holdingRef = useRef<ChatLang | null>(null);
+  const finalsRef = useRef("");
+  const interimRef = useRef("");
   const sendQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const activeLocaleRef = useRef<SpeechLocale>("ar-EG");
 
   const leftMessages = useMemo(
     () => messages.filter((m) => m.originalLang === "en").sort(byNewest),
@@ -121,25 +89,14 @@ export function LessonChatClient({
     setMessages((prev) =>
       prev.some((m) => m.id === message.id) ? prev : [...prev, message],
     );
-    lastStamp.current = message.createdAt;
   }
 
-  function sendFinal(text: string, sessionLocale: SpeechLocale) {
+  function sendFinal(text: string, originalLang: ChatLang) {
     const payload = text.trim();
-    if (!shouldAcceptTranscript(payload, sessionLocale)) return;
-
-    const originalLang = detectSpeechLang(
-      payload,
-      localeToLang(sessionLocale),
-    );
+    if (!payload) return;
     const tempId = `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-    setPending((prev) => [
-      { id: tempId, originalLang, text: payload },
-      ...prev,
-    ]);
+    setPending((prev) => [{ id: tempId, originalLang, text: payload }, ...prev]);
     setInterim("");
-    setInterimLang(null);
 
     sendQueueRef.current = sendQueueRef.current.then(async () => {
       setError(null);
@@ -157,37 +114,30 @@ export function LessonChatClient({
     });
   }
 
-  useEffect(() => {
-    start(async () => {
-      const res = await fetchChatMessagesAction(threadId);
-      if (res.ok) {
-        setMessages(res.messages);
-        lastStamp.current = res.messages.at(-1)?.createdAt;
-      }
-    });
-  }, [threadId]);
+  function stopHoldAndTranslate() {
+    const side = holdingRef.current;
+    if (!side) return;
+    holdingRef.current = null;
+    setHolding(null);
 
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      void (async () => {
-        const res = await fetchChatMessagesAction(threadId, lastStamp.current);
-        if (!res.ok || res.messages.length === 0) return;
-        setMessages((prev) => {
-          const ids = new Set(prev.map((m) => m.id));
-          const next = [...prev];
-          for (const m of res.messages) {
-            if (!ids.has(m.id)) next.push(m);
-          }
-          return next;
-        });
-        lastStamp.current = res.messages.at(-1)?.createdAt || lastStamp.current;
-      })();
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [threadId]);
+    const rec = recognitionRef.current;
+    recognitionRef.current = null;
+    try {
+      rec?.stop();
+    } catch {
+      /* ignore */
+    }
 
-  useEffect(() => {
-    aliveRef.current = true;
+    const text = `${finalsRef.current} ${interimRef.current}`.trim();
+    finalsRef.current = "";
+    interimRef.current = "";
+    setInterim("");
+    if (text) sendFinal(text, side);
+  }
+
+  function startHold(side: ChatLang) {
+    if (holdingRef.current) return;
+    setError(null);
     const Ctor = getSpeechRecognition();
     if (!Ctor) {
       setError(
@@ -198,200 +148,266 @@ export function LessonChatClient({
       return;
     }
 
-    let restartTimer: number | undefined;
-    // Start with Arabic so teachers get a quick first pass; then flip each cycle
-    activeLocaleRef.current = "ar-EG";
-    setActiveLocale("ar-EG");
+    finalsRef.current = "";
+    interimRef.current = "";
+    holdingRef.current = side;
+    setHolding(side);
+    setInterim("");
 
-    function flipLocale() {
-      activeLocaleRef.current =
-        activeLocaleRef.current === "ar-EG" ? "en-US" : "ar-EG";
-      setActiveLocale(activeLocaleRef.current);
-    }
-
-    function begin() {
-      if (!aliveRef.current || !Ctor) return;
-      try {
-        recognitionRef.current?.stop();
-      } catch {
-        /* ignore */
+    const rec = new Ctor();
+    rec.lang = side === "ar" ? "ar-EG" : "en-US";
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.onresult = (ev) => {
+      let interimChunk = "";
+      let finalChunk = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const r = ev.results[i];
+        const transcript = r[0].transcript;
+        if (r.isFinal) finalChunk += `${transcript} `;
+        else interimChunk += transcript;
       }
-
-      const sessionLocale = activeLocaleRef.current;
-      const rec = new Ctor();
-      rec.lang = sessionLocale;
-      rec.continuous = false;
-      rec.interimResults = true;
-      rec.onresult = (ev) => {
-        let interimChunk = "";
-        let finalChunk = "";
-        for (let i = ev.resultIndex; i < ev.results.length; i++) {
-          const r = ev.results[i];
-          const transcript = r[0].transcript;
-          if (r.isFinal) finalChunk += transcript;
-          else interimChunk += transcript;
-        }
-        if (finalChunk.trim()) {
-          sendFinal(finalChunk, sessionLocale);
-        } else if (interimChunk.trim()) {
-          const previewLang = detectSpeechLang(
-            interimChunk,
-            localeToLang(sessionLocale),
-          );
-          // Only show interim if it matches the session language quality filter
-          if (shouldAcceptTranscript(interimChunk, sessionLocale) || interimChunk.length > 1) {
-            setInterim(interimChunk);
-            setInterimLang(previewLang);
-          }
-        }
-      };
-      rec.onerror = (ev) => {
-        if (ev.error === "aborted" || ev.error === "no-speech") return;
-        setError(
-          ev.error === "not-allowed"
-            ? lang === "ar"
-              ? "اسمح بالميكروفون من المتصفح"
-              : "Allow microphone access in the browser"
-            : ev.error,
-        );
-        setListening(false);
-      };
-      rec.onend = () => {
-        setListening(false);
-        setInterim("");
-        setInterimLang(null);
-        if (!aliveRef.current) return;
-        flipLocale();
-        restartTimer = window.setTimeout(() => {
-          if (aliveRef.current) begin();
-        }, 80);
-      };
-      recognitionRef.current = rec;
-      try {
-        rec.start();
-        setListening(true);
-        setError(null);
-      } catch {
-        setListening(false);
-        flipLocale();
-        restartTimer = window.setTimeout(() => {
-          if (aliveRef.current) begin();
-        }, 400);
+      if (finalChunk.trim()) {
+        finalsRef.current = `${finalsRef.current} ${finalChunk}`.trim();
       }
-    }
-
-    begin();
-
-    return () => {
-      aliveRef.current = false;
-      if (restartTimer) window.clearTimeout(restartTimer);
-      try {
-        recognitionRef.current?.stop();
-      } catch {
-        /* ignore */
-      }
-      recognitionRef.current = null;
+      interimRef.current = interimChunk;
+      setInterim(
+        `${finalsRef.current}${interimChunk ? ` ${interimChunk}` : ""}`.trim(),
+      );
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadId, lang]);
+    rec.onerror = (ev) => {
+      if (ev.error === "aborted" || ev.error === "no-speech") return;
+      setError(
+        ev.error === "not-allowed"
+          ? lang === "ar"
+            ? "اسمح بالميكروفون من المتصفح"
+            : "Allow microphone access in the browser"
+          : ev.error,
+      );
+    };
+    rec.onend = () => {
+      // If still holding (browser ended early), restart while pressed
+      if (holdingRef.current === side) {
+        try {
+          rec.start();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    recognitionRef.current = rec;
+    try {
+      rec.start();
+    } catch {
+      holdingRef.current = null;
+      setHolding(null);
+      setError(
+        lang === "ar" ? "تعذر بدء الميكروفون" : "Could not start microphone",
+      );
+    }
+  }
 
-  const listeningLabel =
-    lang === "ar"
-      ? listening
-        ? `يستمع (${activeLocale === "ar-EG" ? "عربي" : "إنجليزي"})…`
-        : "في انتظار الميكروفون…"
-      : listening
-        ? `Listening (${activeLocale === "ar-EG" ? "Arabic" : "English"})…`
-        : "Waiting for microphone…";
+  useEffect(() => {
+    start(async () => {
+      const res = await fetchChatMessagesAction(threadId);
+      if (res.ok) setMessages(res.messages);
+    });
+  }, [threadId]);
 
-  function PaneMessages({
+  // Full refetch so clears sync to the peer
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void (async () => {
+        const res = await fetchChatMessagesAction(threadId);
+        if (!res.ok) return;
+        setMessages(res.messages);
+      })();
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [threadId]);
+
+  useEffect(() => {
+    return () => {
+      holdingRef.current = null;
+      try {
+        recognitionRef.current?.abort?.();
+        recognitionRef.current?.stop();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, []);
+
+  function onClearChat() {
+    setClearing(true);
+    start(async () => {
+      const res = await clearChatThreadAction(threadId);
+      setClearing(false);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setMessages([]);
+      setPending([]);
+      setInterim("");
+      setError(null);
+    });
+  }
+
+  function HoldButton({
+    side,
+    label,
+  }: {
+    side: ChatLang;
+    label: string;
+  }) {
+    const active = holding === side;
+    return (
+      <button
+        type="button"
+        className={`select-none rounded-xl px-4 py-4 text-base font-semibold touch-none ${
+          active
+            ? "bg-danger text-card"
+            : "bg-olive text-card hover:bg-olive-deep"
+        }`}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
+          startHold(side);
+        }}
+        onPointerUp={(e) => {
+          e.preventDefault();
+          try {
+            (e.currentTarget as HTMLButtonElement).releasePointerCapture(
+              e.pointerId,
+            );
+          } catch {
+            /* ignore */
+          }
+          stopHoldAndTranslate();
+        }}
+        onPointerCancel={() => stopHoldAndTranslate()}
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        {active ? t.recording : label}
+      </button>
+    );
+  }
+
+  function Pane({
     items,
     pendingItems,
     showInterim,
     dir,
     cardClass,
+    empty,
+    holdSide,
+    holdLabel,
   }: {
     items: ChatMessage[];
     pendingItems: PendingBubble[];
     showInterim: boolean;
     dir: "rtl" | "ltr";
     cardClass: string;
+    empty: string;
+    holdSide: ChatLang;
+    holdLabel: string;
   }) {
     return (
-      <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
-        {showInterim && interim && (
-          <div className="rounded-xl border border-dashed border-line px-3 py-2 text-sm text-ink-muted">
-            … {interim}
-          </div>
-        )}
-        {pendingItems.map((p) => (
-          <div
-            key={p.id}
-            className="rounded-xl border border-dashed border-olive/40 bg-olive/5 px-3 py-2 text-sm opacity-80"
-          >
-            <p className="whitespace-pre-wrap" dir={dir}>
-              {p.text}
-            </p>
-          </div>
-        ))}
-        {items.map((m) => (
-          <div key={m.id} className={cardClass}>
-            <p className="whitespace-pre-wrap" dir={dir}>
-              {m.translatedText}
-            </p>
-          </div>
-        ))}
-        {items.length === 0 &&
-          pendingItems.length === 0 &&
-          !(showInterim && interim) && (
-            <p className="text-center text-xs text-ink-muted">
-              {dir === "rtl" ? t.paneLeftEmpty : t.paneRightEmpty}
-            </p>
+      <section className="flex min-h-0 flex-col" dir={dir}>
+        <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
+          {showInterim && interim && (
+            <div className="rounded-xl border border-dashed border-line px-3 py-2 text-sm text-ink-muted">
+              … {interim}
+            </div>
           )}
-      </div>
+          {pendingItems.map((p) => (
+            <div
+              key={p.id}
+              className="rounded-xl border border-dashed border-olive/40 bg-olive/5 px-3 py-2 text-sm opacity-80"
+            >
+              <p className="whitespace-pre-wrap" dir={dir}>
+                {p.text}
+              </p>
+            </div>
+          ))}
+          {items.map((m) => (
+            <div key={m.id} className={cardClass}>
+              <p className="whitespace-pre-wrap" dir={dir}>
+                {m.translatedText}
+              </p>
+            </div>
+          ))}
+          {items.length === 0 &&
+            pendingItems.length === 0 &&
+            !(showInterim && interim) && (
+              <p className="text-center text-xs text-ink-muted">{empty}</p>
+            )}
+        </div>
+        <div className="border-t border-line p-3">
+          <p className="mb-2 text-center text-[11px] text-ink-muted">
+            {t.holdToRecord}
+          </p>
+          <HoldButton side={holdSide} label={holdLabel} />
+        </div>
+      </section>
     );
   }
 
   return (
     <div className="flex h-[min(78vh,720px)] flex-col rounded-2xl border border-line bg-card">
-      <div className="border-b border-line px-4 py-3">
-        <div className="font-display text-lg text-olive-deep">
-          {t.chatWith} {peerName}
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-3">
+        <div>
+          <div className="font-display text-lg text-olive-deep">
+            {t.chatWith} {peerName}
+          </div>
+          <p className="text-xs text-ink-muted">{t.micHintBoth}</p>
+          {error && <p className="mt-1 text-xs text-danger">{error}</p>}
         </div>
-        <p className="text-xs text-ink-muted">{t.micHintBoth}</p>
-        <p className="mt-1 text-[11px] text-ink-muted">{listeningLabel}</p>
-        {error && <p className="mt-1 text-xs text-danger">{error}</p>}
+        <button
+          type="button"
+          disabled={clearing}
+          onClick={onClearChat}
+          className="rounded-xl border border-danger/40 px-3 py-2 text-sm font-semibold text-danger hover:bg-danger/10 disabled:opacity-60"
+        >
+          {t.clearChat}
+        </button>
       </div>
 
       <div
         className="grid min-h-0 flex-1 grid-cols-2 divide-x divide-line"
         dir="ltr"
       >
-        <section className="flex min-h-0 flex-col" dir="rtl">
+        <div className="flex min-h-0 flex-col border-r border-line">
           <header className="border-b border-line bg-bg-deep/50 px-3 py-2 text-center text-xs font-semibold text-ink-muted">
             English → العربية
           </header>
-          <PaneMessages
+          <Pane
             items={leftMessages}
             pendingItems={leftPending}
-            showInterim={interimLang === "en"}
+            showInterim={holding === "en"}
             dir="rtl"
             cardClass="rounded-xl border border-line bg-bg px-3 py-2 text-sm"
+            empty={t.paneLeftEmpty}
+            holdSide="en"
+            holdLabel={t.talk}
           />
-        </section>
-
-        <section className="flex min-h-0 flex-col" dir="ltr">
+        </div>
+        <div className="flex min-h-0 flex-col">
           <header className="border-b border-line bg-bg-deep/50 px-3 py-2 text-center text-xs font-semibold text-ink-muted">
             العربية → English
           </header>
-          <PaneMessages
+          <Pane
             items={rightMessages}
             pendingItems={rightPending}
-            showInterim={interimLang === "ar"}
+            showInterim={holding === "ar"}
             dir="ltr"
             cardClass="rounded-xl border border-olive/25 bg-olive/5 px-3 py-2 text-sm"
+            empty={t.paneRightEmpty}
+            holdSide="ar"
+            holdLabel={t.speakAr}
           />
-        </section>
+        </div>
       </div>
     </div>
   );

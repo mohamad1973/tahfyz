@@ -59,6 +59,11 @@ export type Dictionary = {
   micHintBoth: string;
   paneLeftEmpty: string;
   paneRightEmpty: string;
+  clearChat: string;
+  talk: string;
+  speakAr: string;
+  holdToRecord: string;
+  recording: string;
   resetPassword: string;
   email: string;
   sendResetLink: string;
@@ -134,9 +139,14 @@ export const dictionaries: Record<Lang, Dictionary> = {
     micHintTeacher:
       "تكلم عربي أو إنجليزي — الترجمة تظهر للطرفين في العمودين.",
     micHintBoth:
-      "تكلم عربي أو إنجليزي من هذه الصفحة — يسار: إنجليزي→عربي · يمين: عربي→إنجليزي (يظهر عند الطرفين).",
+      "اضغط مطوّلاً على Talk (إنجليزي) أو تحدث (عربي) ثم ارفع للإرسال والترجمة فوراً.",
     paneLeftEmpty: "الكلام الإنجليزي يظهر هنا مترجماً للعربية",
     paneRightEmpty: "الكلام العربي يظهر هنا مترجماً للإنجليزية",
+    clearChat: "مسح المحادثة",
+    talk: "Talk",
+    speakAr: "تحدث",
+    holdToRecord: "اضغط باستمرار للتسجيل — ارفع للإرسال والترجمة",
+    recording: "يسجّل… ارفع للإرسال",
     resetPassword: "إعادة تعيين كلمة المرور",
     email: "البريد الإلكتروني",
     sendResetLink: "إرسال رابط الاسترجاع",
@@ -214,9 +224,14 @@ export const dictionaries: Record<Lang, Dictionary> = {
     micHintTeacher:
       "Speak Arabic or English — translations show for both people in both columns.",
     micHintBoth:
-      "Speak Arabic or English on this page — left: EN→AR · right: AR→EN (visible to both sides).",
+      "Hold Talk (English) or تحدث (Arabic), then release to send and translate instantly.",
     paneLeftEmpty: "English speech appears here translated into Arabic",
     paneRightEmpty: "Arabic speech appears here translated into English",
+    clearChat: "Clear chat",
+    talk: "Talk",
+    speakAr: "تحدث",
+    holdToRecord: "Hold to record — release to send and translate",
+    recording: "Recording… release to send",
     resetPassword: "Reset password",
     email: "Email",
     sendResetLink: "Send reset link",

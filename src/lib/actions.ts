@@ -6,6 +6,7 @@ import {
   addChatMessage,
   addNotification,
   addUser,
+  clearChatMessages,
   createTeacher,
   expireStaleHolds,
   getAvailability,
@@ -894,6 +895,18 @@ export async function sendChatMessageAction(input: {
   });
 
   return { ok: true as const, message };
+}
+
+export async function clearChatThreadAction(threadId: string) {
+  const { user } = await requireSession(["student", "teacher"]);
+  const thread = await getChatThread(threadId);
+  if (!thread) return { ok: false as const, error: "Chat not found" };
+  const allowed =
+    (user.role === "student" && thread.studentId === user.id) ||
+    (user.role === "teacher" && thread.teacherId === user.teacherId);
+  if (!allowed) return { ok: false as const, error: "Not authorized" };
+  await clearChatMessages(threadId);
+  return { ok: true as const };
 }
 
 export async function listMyChatPartnersAction() {
