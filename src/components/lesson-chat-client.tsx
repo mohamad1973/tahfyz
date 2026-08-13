@@ -237,15 +237,16 @@ export function LessonChatClient({
     };
 
     if (recorder && recorder.state !== "inactive") {
+      recorder.ondataavailable = (ev) => {
+        if (ev.data.size > 0) audioChunksRef.current.push(ev.data);
+      };
       recorder.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, {
-          type: (recorder.mimeType || "audio/webm").split(";")[0],
-        });
+        const mime = (recorder.mimeType || "audio/webm").split(";")[0];
+        const blob = new Blob(audioChunksRef.current, { type: mime });
         audioChunksRef.current = [];
-        finish(blob);
+        finish(blob.size > 0 ? blob : null);
       };
       try {
-        if (recorder.state === "recording") recorder.requestData();
         recorder.stop();
       } catch {
         audioChunksRef.current = [];
@@ -293,7 +294,8 @@ export function LessonChatClient({
         if (ev.data.size > 0) audioChunksRef.current.push(ev.data);
       };
       mediaRecorderRef.current = recorder;
-      recorder.start(200);
+      // Single complete file on stop — timeslice chunks often play only ~1s
+      recorder.start();
     } catch {
       setError(
         lang === "ar"
