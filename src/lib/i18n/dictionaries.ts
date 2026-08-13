@@ -56,6 +56,8 @@ export type Dictionary = {
   listening: string;
   micHintStudent: string;
   micHintTeacher: string;
+  paneLeftEmpty: string;
+  paneRightEmpty: string;
   resetPassword: string;
   email: string;
   sendResetLink: string;
@@ -88,9 +90,9 @@ export const dictionaries: Record<Lang, Dictionary> = {
     linkChild: "ربط الابن",
     lessonChat: "شات الدرس",
     lessonChatHelpStudent:
-      "تكلم بالإنجليزية → نص إنجليزي + ترجمة عربية. المعلم يرى الاثنين.",
+      "تكلم بالإنجليزية — تظهر الترجمة العربية في النصف الأيسر تلقائياً.",
     lessonChatHelpTeacher:
-      "تكلم بالعربية → نص عربي + ترجمة إنجليزية. الطالب يرى الاثنين.",
+      "تكلم بالعربية — تظهر الترجمة الإنجليزية في النصف الأيمن تلقائياً.",
     openChat: "فتح الشات",
     chatUnlock: "الشات يُفتح بعد حجز درس مع المعلم (الدفع غير مطلوب).",
     myLessons: "دروسي",
@@ -126,8 +128,12 @@ export const dictionaries: Record<Lang, Dictionary> = {
     send: "إرسال",
     holdToSpeak: "اضغط للتحدث",
     listening: "يستمع…",
-    micHintStudent: "الميكروفون بالإنجليزية — يظهر النص وترجمة عربية.",
-    micHintTeacher: "الميكروفون بالعربية — يظهر النص وترجمة إنجليزية.",
+    micHintStudent:
+      "تكلم بالإنجليزية فقط — الترجمة العربية تظهر تلقائياً في اليسار.",
+    micHintTeacher:
+      "تكلم بالعربية فقط — الترجمة الإنجليزية تظهر تلقائياً في اليمين.",
+    paneLeftEmpty: "الكلام الإنجليزي يظهر هنا مترجماً للعربية",
+    paneRightEmpty: "الكلام العربي يظهر هنا مترجماً للإنجليزية",
     resetPassword: "إعادة تعيين كلمة المرور",
     email: "البريد الإلكتروني",
     sendResetLink: "إرسال رابط الاسترجاع",
@@ -158,9 +164,9 @@ export const dictionaries: Record<Lang, Dictionary> = {
     linkChild: "Link child",
     lessonChat: "Lesson chat",
     lessonChatHelpStudent:
-      "Speak English → English text + Arabic translation. Your teacher sees both.",
+      "Speak English — Arabic translation appears automatically on the left.",
     lessonChatHelpTeacher:
-      "Speak Arabic → Arabic text + English translation. Your student sees both.",
+      "Speak Arabic — English translation appears automatically on the right.",
     openChat: "Open chat",
     chatUnlock: "Chat unlocks after you book a lesson (payment not required).",
     myLessons: "My lessons",
@@ -200,8 +206,12 @@ export const dictionaries: Record<Lang, Dictionary> = {
     send: "Send",
     holdToSpeak: "Tap to speak",
     listening: "Listening…",
-    micHintStudent: "Mic in English — text + Arabic translation appear.",
-    micHintTeacher: "Mic in Arabic — text + English translation appear.",
+    micHintStudent:
+      "Just speak English — Arabic translation appears on the left automatically.",
+    micHintTeacher:
+      "Just speak Arabic — English translation appears on the right automatically.",
+    paneLeftEmpty: "English speech appears here translated into Arabic",
+    paneRightEmpty: "Arabic speech appears here translated into English",
     resetPassword: "Reset password",
     email: "Email",
     sendResetLink: "Send reset link",

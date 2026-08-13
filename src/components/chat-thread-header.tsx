@@ -20,9 +20,14 @@ export function ChatThreadHeader({
   const { t } = useI18n();
   return (
     <>
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h1 className="font-display text-2xl text-olive-deep">{t.lessonChat}</h1>
-        <Link href={backHref} className="text-sm underline">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl text-olive-deep">{t.lessonChat}</h1>
+          <p className="mt-0.5 text-xs text-ink-muted">
+            {role === "student" ? t.lessonChatHelpStudent : t.lessonChatHelpTeacher}
+          </p>
+        </div>
+        <Link href={backHref} className="shrink-0 text-sm underline">
           {t.back}
         </Link>
       </div>
