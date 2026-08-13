@@ -63,6 +63,197 @@ function byNewest(a: ChatMessage, b: ChatMessage) {
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 }
 
+function messagesFingerprint(list: ChatMessage[]) {
+  return list
+    .map(
+      (m) =>
+        `${m.id}|${m.audioUrl ?? ""}|${m.translatedText}|${m.originalLang}|${m.createdAt}`,
+    )
+    .join("\n");
+}
+
+function MessageCard({
+  id,
+  text,
+  audioUrl,
+  dir,
+  cardClass,
+  deleteLabel,
+  onDelete,
+}: {
+  id: string;
+  text: string;
+  audioUrl?: string;
+  dir: "rtl" | "ltr";
+  cardClass: string;
+  deleteLabel: string;
+  onDelete: (messageId: string) => void;
+}) {
+  return (
+    <div className={cardClass}>
+      <div className="flex items-start justify-between gap-2">
+        <p className="min-w-0 flex-1 whitespace-pre-wrap" dir={dir}>
+          {text}
+        </p>
+        <button
+          type="button"
+          onClick={() => onDelete(id)}
+          className="shrink-0 rounded-md border border-danger/30 px-2 py-1 text-[11px] font-semibold text-danger hover:bg-danger/10"
+          title={deleteLabel}
+        >
+          {deleteLabel}
+        </button>
+      </div>
+      {audioUrl ? (
+        <audio
+          controls
+          preload="metadata"
+          src={audioUrl}
+          className="mt-2 w-full max-w-full"
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function HoldButton({
+  side,
+  label,
+  active,
+  recordingLabel,
+  onStart,
+  onStop,
+}: {
+  side: ChatLang;
+  label: string;
+  active: boolean;
+  recordingLabel: string;
+  onStart: (side: ChatLang) => void;
+  onStop: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`select-none rounded-xl px-4 py-4 text-base font-semibold touch-none ${
+        active
+          ? "bg-danger text-card"
+          : "bg-olive text-card hover:bg-olive-deep"
+      }`}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
+        onStart(side);
+      }}
+      onPointerUp={(e) => {
+        e.preventDefault();
+        try {
+          (e.currentTarget as HTMLButtonElement).releasePointerCapture(
+            e.pointerId,
+          );
+        } catch {
+          /* ignore */
+        }
+        onStop();
+      }}
+      onPointerCancel={() => onStop()}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {active ? recordingLabel : label}
+    </button>
+  );
+}
+
+function ChatPane({
+  items,
+  pendingItems,
+  showInterim,
+  interim,
+  dir,
+  cardClass,
+  empty,
+  holdSide,
+  holdLabel,
+  holdActive,
+  holdToRecord,
+  recordingLabel,
+  uploadingAudio,
+  deleteLabel,
+  onStartHold,
+  onStopHold,
+  onDeleteMessage,
+}: {
+  items: ChatMessage[];
+  pendingItems: PendingBubble[];
+  showInterim: boolean;
+  interim: string;
+  dir: "rtl" | "ltr";
+  cardClass: string;
+  empty: string;
+  holdSide: ChatLang;
+  holdLabel: string;
+  holdActive: boolean;
+  holdToRecord: string;
+  recordingLabel: string;
+  uploadingAudio: string;
+  deleteLabel: string;
+  onStartHold: (side: ChatLang) => void;
+  onStopHold: () => void;
+  onDeleteMessage: (messageId: string) => void;
+}) {
+  return (
+    <section className="flex min-h-0 flex-col" dir={dir}>
+      <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
+        {showInterim && interim && (
+          <div className="rounded-xl border border-dashed border-line px-3 py-2 text-sm text-ink-muted">
+            … {interim}
+          </div>
+        )}
+        {pendingItems.map((p) => (
+          <div
+            key={p.id}
+            className="rounded-xl border border-dashed border-olive/40 bg-olive/5 px-3 py-2 text-sm opacity-80"
+          >
+            <p className="whitespace-pre-wrap" dir={dir}>
+              {p.text}
+            </p>
+            <p className="mt-1 text-[11px] text-ink-muted">{uploadingAudio}</p>
+          </div>
+        ))}
+        {items.map((m) => (
+          <MessageCard
+            key={m.id}
+            id={m.id}
+            text={m.translatedText}
+            audioUrl={m.audioUrl}
+            dir={dir}
+            cardClass={cardClass}
+            deleteLabel={deleteLabel}
+            onDelete={onDeleteMessage}
+          />
+        ))}
+        {items.length === 0 &&
+          pendingItems.length === 0 &&
+          !(showInterim && interim) && (
+            <p className="text-center text-xs text-ink-muted">{empty}</p>
+          )}
+      </div>
+      <div className="border-t border-line p-3">
+        <p className="mb-2 text-center text-[11px] text-ink-muted">
+          {holdToRecord}
+        </p>
+        <HoldButton
+          side={holdSide}
+          label={holdLabel}
+          active={holdActive}
+          recordingLabel={recordingLabel}
+          onStart={onStartHold}
+          onStop={onStopHold}
+        />
+      </div>
+    </section>
+  );
+}
+
 export function LessonChatClient({
   threadId,
   peerName,
@@ -446,7 +637,11 @@ export function LessonChatClient({
       void (async () => {
         const res = await fetchChatMessagesAction(threadId);
         if (!res.ok) return;
-        setMessages(res.messages);
+        setMessages((prev) =>
+          messagesFingerprint(prev) === messagesFingerprint(res.messages)
+            ? prev
+            : res.messages,
+        );
       })();
     }, 1000);
     return () => window.clearInterval(id);
@@ -487,46 +682,6 @@ export function LessonChatClient({
     });
   }
 
-  function HoldButton({
-    side,
-    label,
-  }: {
-    side: ChatLang;
-    label: string;
-  }) {
-    const active = holding === side;
-    return (
-      <button
-        type="button"
-        className={`select-none rounded-xl px-4 py-4 text-base font-semibold touch-none ${
-          active
-            ? "bg-danger text-card"
-            : "bg-olive text-card hover:bg-olive-deep"
-        }`}
-        onPointerDown={(e) => {
-          e.preventDefault();
-          (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
-          void startHold(side);
-        }}
-        onPointerUp={(e) => {
-          e.preventDefault();
-          try {
-            (e.currentTarget as HTMLButtonElement).releasePointerCapture(
-              e.pointerId,
-            );
-          } catch {
-            /* ignore */
-          }
-          stopHoldAndTranslate();
-        }}
-        onPointerCancel={() => stopHoldAndTranslate()}
-        onContextMenu={(e) => e.preventDefault()}
-      >
-        {active ? t.recording : label}
-      </button>
-    );
-  }
-
   function onDeleteMessage(messageId: string) {
     start(async () => {
       const res = await deleteChatMessageAction(messageId);
@@ -536,110 +691,6 @@ export function LessonChatClient({
       }
       setMessages((prev) => prev.filter((m) => m.id !== messageId));
     });
-  }
-
-  function MessageCard({
-    id,
-    text,
-    audioUrl,
-    dir,
-    cardClass,
-  }: {
-    id: string;
-    text: string;
-    audioUrl?: string;
-    dir: "rtl" | "ltr";
-    cardClass: string;
-  }) {
-    return (
-      <div className={cardClass}>
-        <div className="flex items-start justify-between gap-2">
-          <p className="min-w-0 flex-1 whitespace-pre-wrap" dir={dir}>
-            {text}
-          </p>
-          <button
-            type="button"
-            onClick={() => onDeleteMessage(id)}
-            className="shrink-0 rounded-md border border-danger/30 px-2 py-1 text-[11px] font-semibold text-danger hover:bg-danger/10"
-            title={t.deleteLine}
-          >
-            {t.deleteLine}
-          </button>
-        </div>
-        {audioUrl ? (
-          <audio
-            controls
-            preload="metadata"
-            src={audioUrl}
-            className="mt-2 w-full max-w-full"
-          />
-        ) : null}
-      </div>
-    );
-  }
-
-  function Pane({
-    items,
-    pendingItems,
-    showInterim,
-    dir,
-    cardClass,
-    empty,
-    holdSide,
-    holdLabel,
-  }: {
-    items: ChatMessage[];
-    pendingItems: PendingBubble[];
-    showInterim: boolean;
-    dir: "rtl" | "ltr";
-    cardClass: string;
-    empty: string;
-    holdSide: ChatLang;
-    holdLabel: string;
-  }) {
-    return (
-      <section className="flex min-h-0 flex-col" dir={dir}>
-        <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
-          {showInterim && interim && (
-            <div className="rounded-xl border border-dashed border-line px-3 py-2 text-sm text-ink-muted">
-              … {interim}
-            </div>
-          )}
-          {pendingItems.map((p) => (
-            <div
-              key={p.id}
-              className="rounded-xl border border-dashed border-olive/40 bg-olive/5 px-3 py-2 text-sm opacity-80"
-            >
-              <p className="whitespace-pre-wrap" dir={dir}>
-                {p.text}
-              </p>
-              <p className="mt-1 text-[11px] text-ink-muted">{t.uploadingAudio}</p>
-            </div>
-          ))}
-          {items.map((m) => (
-            <MessageCard
-              key={m.id}
-              id={m.id}
-              text={m.translatedText}
-              audioUrl={m.audioUrl}
-              dir={dir}
-              cardClass={cardClass}
-            />
-          ))}
-          {items.length === 0 &&
-            pendingItems.length === 0 &&
-            !(showInterim && interim) && (
-              <p className="text-center text-xs text-ink-muted">{empty}</p>
-            )}
-        </div>
-        <div className="border-t border-line p-3">
-          <p className="mb-2 text-center text-[11px] text-ink-muted">
-            {t.holdToRecord}
-          </p>
-          <HoldButton side={holdSide} label={holdLabel} />
-        </div>
-      </section>
-    );
   }
 
   return (
@@ -670,30 +721,48 @@ export function LessonChatClient({
           <header className="border-b border-line bg-bg-deep/50 px-3 py-2 text-center text-xs font-semibold text-ink-muted">
             English → العربية
           </header>
-          <Pane
+          <ChatPane
             items={leftMessages}
             pendingItems={leftPending}
             showInterim={holding === "en"}
+            interim={interim}
             dir="rtl"
             cardClass="rounded-xl border border-line bg-bg px-3 py-2 text-sm"
             empty={t.paneLeftEmpty}
             holdSide="en"
             holdLabel={t.talk}
+            holdActive={holding === "en"}
+            holdToRecord={t.holdToRecord}
+            recordingLabel={t.recording}
+            uploadingAudio={t.uploadingAudio}
+            deleteLabel={t.deleteLine}
+            onStartHold={(side) => void startHold(side)}
+            onStopHold={stopHoldAndTranslate}
+            onDeleteMessage={onDeleteMessage}
           />
         </div>
         <div className="flex min-h-0 flex-col">
           <header className="border-b border-line bg-bg-deep/50 px-3 py-2 text-center text-xs font-semibold text-ink-muted">
             العربية → English
           </header>
-          <Pane
+          <ChatPane
             items={rightMessages}
             pendingItems={rightPending}
             showInterim={holding === "ar"}
+            interim={interim}
             dir="ltr"
             cardClass="rounded-xl border border-olive/25 bg-olive/5 px-3 py-2 text-sm"
             empty={t.paneRightEmpty}
             holdSide="ar"
             holdLabel={t.speakAr}
+            holdActive={holding === "ar"}
+            holdToRecord={t.holdToRecord}
+            recordingLabel={t.recording}
+            uploadingAudio={t.uploadingAudio}
+            deleteLabel={t.deleteLine}
+            onStartHold={(side) => void startHold(side)}
+            onStopHold={stopHoldAndTranslate}
+            onDeleteMessage={onDeleteMessage}
           />
         </div>
       </div>
