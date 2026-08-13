@@ -2,8 +2,8 @@ import Link from "next/link";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { AccountCredentialsForm } from "@/components/account-credentials-form";
 import { AvailabilityEditor } from "@/components/availability-editor";
-import { OpenStudentChatButton } from "@/components/open-chat-button";
 import { ScheduleCalendar } from "@/components/schedule-calendar";
+import { TeacherChatSection } from "@/components/teacher-chat-section";
 import { TeacherProfileEditor } from "@/components/teacher-profile-editor";
 import {
   expireStaleHolds,
@@ -56,35 +56,9 @@ export default async function TeacherDashboard() {
         عدّل حسابك، بروفايلك، الوسائط، والجدول — وافتح شات الدرس مع طلابك.
       </p>
 
-      <section className="mt-8">
-        <h2 className="font-display text-xl">شات الدرس مع الطلاب</h2>
-        <p className="mt-1 text-sm text-ink-muted">
-          تكلم بالعربية → يظهر النص عربي والترجمة إنجليزي للطالب ولك. الشات يفتح
-          بعد الحجز (من غير شرط الدفع).
-        </p>
-        <ul className="mt-3 space-y-2">
-          {students.length === 0 && (
-            <li className="text-sm text-ink-muted">
-              يظهر الطلاب بعد ما يعملوا حجز (حتى لو لسه ما دفعوش).
-            </li>
-          )}
-          {students.map((s) =>
-            s ? (
-              <li
-                key={s.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-card px-4 py-3 text-sm"
-              >
-                <span>
-                  <span className="font-medium">{s.name}</span>
-                  <span className="mx-2 text-ink-muted">·</span>
-                  <span className="font-mono text-xs">{s.username}</span>
-                </span>
-                <OpenStudentChatButton studentId={s.id} />
-              </li>
-            ) : null,
-          )}
-        </ul>
-      </section>
+      <TeacherChatSection
+        students={students.filter((s): s is NonNullable<typeof s> => Boolean(s))}
+      />
 
       <section className="mt-8">
         <h2 className="font-display text-xl">الإشعارات</h2>
@@ -108,6 +82,7 @@ export default async function TeacherDashboard() {
         <AccountCredentialsForm
           userId={account.id}
           username={account.username}
+          email={account.email}
           mode="self"
         />
       </section>

@@ -6,10 +6,12 @@ import { updateAccountCredentialsAction } from "@/lib/actions";
 export function AccountCredentialsForm({
   userId,
   username,
+  email,
   mode,
 }: {
   userId: string;
   username: string;
+  email?: string;
   mode: "self" | "admin";
 }) {
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +46,15 @@ export function AccountCredentialsForm({
             defaultValue={username}
             required
             pattern="[a-zA-Z0-9_]{3,32}"
+            className="w-full rounded-xl border border-line bg-bg px-3 py-2"
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium">Email (for password reset)</span>
+          <input
+            name="email"
+            type="email"
+            defaultValue={email || ""}
             className="w-full rounded-xl border border-line bg-bg px-3 py-2"
           />
         </label>

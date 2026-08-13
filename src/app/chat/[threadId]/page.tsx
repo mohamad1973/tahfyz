@@ -1,7 +1,5 @@
-import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { LessonChatClient } from "@/components/lesson-chat-client";
+import { ChatThreadHeader } from "@/components/chat-thread-header";
 import { requireSession } from "@/lib/auth";
 import {
   getChatThread,
@@ -9,6 +7,7 @@ import {
   getUserById,
 } from "@/lib/store";
 import type { Metadata } from "next";
+import { notFound, redirect } from "next/navigation";
 
 export const metadata: Metadata = { title: "Lesson Chat" };
 export const dynamic = "force-dynamic";
@@ -36,21 +35,13 @@ export default async function ChatThreadPage({
       : student?.name || "Student";
 
   return (
-    <DashboardShell role={user.role} dir="rtl">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h1 className="font-display text-2xl text-olive-deep">شات الدرس</h1>
-        <Link
-          href={user.role === "teacher" ? "/teacher" : "/student"}
-          className="text-sm underline"
-        >
-          رجوع
-        </Link>
-      </div>
-      <LessonChatClient
+    <DashboardShell role={user.role}>
+      <ChatThreadHeader
+        backHref={user.role === "teacher" ? "/teacher" : "/student"}
+        peerName={peerName}
         threadId={thread.id}
         currentUserId={user.id}
         role={user.role === "teacher" ? "teacher" : "student"}
-        peerName={peerName}
       />
     </DashboardShell>
   );

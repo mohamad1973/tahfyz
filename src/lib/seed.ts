@@ -110,7 +110,7 @@ const DEMO_TEACHERS: Omit<Teacher, "videos" | "audios">[] = [
 
 export async function createSeedData(): Promise<AppData> {
   const adminPass = await hashPassword("admin123");
-  const teacherPass = await hashPassword("teacher123");
+  const teacherPass = await hashPassword("123456");
 
   const teachers: Teacher[] = DEMO_TEACHERS.map((t) => ({
     ...t,
@@ -156,21 +156,15 @@ export async function createSeedData(): Promise<AppData> {
     }),
   ];
 
-  const availability = teachers.flatMap((t) => {
-    const slots = [
-      { dayOfWeek: 0, startHour: 18, endHour: 22 },
-      { dayOfWeek: 1, startHour: 17, endHour: 21 },
-      { dayOfWeek: 2, startHour: 18, endHour: 22 },
-      { dayOfWeek: 3, startHour: 17, endHour: 21 },
-      { dayOfWeek: 4, startHour: 16, endHour: 20 },
-      { dayOfWeek: 6, startHour: 10, endHour: 14 },
-    ];
-    return slots.map((s) => ({
+  const availability = teachers.flatMap((t) =>
+    [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
       id: uid("avl"),
       teacherId: t.id,
-      ...s,
-    }));
-  });
+      dayOfWeek,
+      startHour: 0,
+      endHour: 24,
+    })),
+  );
 
   return {
     users,

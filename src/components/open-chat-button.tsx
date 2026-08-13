@@ -6,6 +6,7 @@ import {
   openChatWithStudentAction,
   openChatWithTeacherAction,
 } from "@/lib/actions";
+import { useI18n } from "@/lib/i18n/provider";
 
 export function OpenTeacherChatButton({
   teacherId,
@@ -14,6 +15,7 @@ export function OpenTeacherChatButton({
   teacherId: string;
   label?: string;
 }) {
+  const { t } = useI18n();
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +38,7 @@ export function OpenTeacherChatButton({
         }}
         className="rounded-lg bg-olive px-3 py-1.5 text-xs font-semibold text-card disabled:opacity-60"
       >
-        {label || "Open lesson chat"}
+        {label || t.openChat}
       </button>
       {error && <span className="text-xs text-danger">{error}</span>}
     </span>
@@ -50,6 +52,7 @@ export function OpenStudentChatButton({
   studentId: string;
   label?: string;
 }) {
+  const { t } = useI18n();
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +75,7 @@ export function OpenStudentChatButton({
         }}
         className="rounded-lg bg-olive px-3 py-1.5 text-xs font-semibold text-card disabled:opacity-60"
       >
-        {label || "شات مع الطالب"}
+        {label || t.openChat}
       </button>
       {error && <span className="text-xs text-danger">{error}</span>}
     </span>

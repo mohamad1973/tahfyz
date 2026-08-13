@@ -9,7 +9,8 @@
     "lint": "eslint",
     "prisma:generate": "prisma generate",
     "db:push": "prisma db push",
-    "db:seed": "node prisma/seed.mjs"
+    "db:seed": "node prisma/seed.mjs",
+    "db:sync-teachers": "node scripts/sync-teachers-trial.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

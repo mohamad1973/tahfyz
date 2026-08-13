@@ -29,6 +29,7 @@ import {
 } from "./store";
 import {
   HOLD_HOURS,
+  fullWeekAvailabilityTemplate,
   hashPassword,
   isValidUsername,
   normalizeUsername,
@@ -335,12 +336,10 @@ export async function setPasswordAction(formData: FormData) {
 
 export async function linkChildAction(formData: FormData) {
   const { user } = await requireSession(["parent"]);
-  const email = String(formData.get("email") || "")
-    .toLowerCase()
-    .trim();
-  const child = await getUserByEmail(email);
+  const username = normalizeUsername(String(formData.get("username") || ""));
+  const child = await getUserByUsername(username);
   if (!child || child.role !== "student") {
-    return { ok: false as const, error: "Student account not found" };
+    return { ok: false as const, error: "Student username not found" };
   }
   const { addParentLink } = await import("./store");
   await addParentLink({
@@ -349,6 +348,90 @@ export async function linkChildAction(formData: FormData) {
     studentId: child.id,
   });
   revalidatePath("/parent");
+  return { ok: true as const };
+}
+
+export async function registerStudentAction(formData: FormData) {
+  const name = String(formData.get("name") || "").trim();
+  const username = normalizeUsername(String(formData.get("username") || ""));
+  const email = String(formData.get("email") || "")
+    .toLowerCase()
+    .trim();
+  const password = String(formData.get("password") || "");
+  if (!name || !username || password.length < 6) {
+    return { ok: false as const, error: "Fill all fields (password 6+ chars)" };
+  }
+  if (!isValidUsername(username)) {
+    return {
+      ok: false as const,
+      error: "Username: 3–32 chars, letters/numbers/_ only",
+    };
+  }
+  if (await getUserByUsername(username)) {
+    return { ok: false as const, error: "Username already taken" };
+  }
+  if (email && (await getUserByEmail(email))) {
+    return { ok: false as const, error: "Email already registered" };
+  }
+  const user = await addUser({
+    id: uid("usr"),
+    username,
+    email: email || undefined,
+    passwordHash: await hashPassword(password),
+    name,
+    role: "student",
+    createdAt: new Date().toISOString(),
+  });
+  await setSession(user);
+  redirect("/student");
+}
+
+export async function requestPasswordResetAction(formData: FormData) {
+  const email = String(formData.get("email") || "")
+    .toLowerCase()
+    .trim();
+  if (!email) return { ok: false as const, error: "Email required" };
+  const user = await getUserByEmail(email);
+  // Always return ok to avoid account enumeration, but only email if user exists
+  if (user?.email) {
+    const token = uid("rst") + uid("t");
+    const { createPasswordResetToken } = await import("./store");
+    await createPasswordResetToken({
+      id: uid("prt"),
+      userId: user.id,
+      token,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    });
+    const appUrl =
+      process.env.NEXT_PUBLIC_APP_URL || "https://tahfyz.vercel.app";
+    const { sendPasswordResetEmail } = await import("./email");
+    const sent = await sendPasswordResetEmail({
+      to: user.email,
+      resetUrl: `${appUrl.replace(/\/$/, "")}/reset-password?token=${token}`,
+    });
+    if (!sent.ok) return { ok: false as const, error: sent.error };
+  }
+  return {
+    ok: true as const,
+    message: "If that email exists, a reset link was sent.",
+  };
+}
+
+export async function resetPasswordWithTokenAction(formData: FormData) {
+  const token = String(formData.get("token") || "").trim();
+  const password = String(formData.get("password") || "");
+  const confirm = String(formData.get("confirm") || "");
+  if (!token) return { ok: false as const, error: "Invalid token" };
+  if (password.length < 6 || password !== confirm) {
+    return { ok: false as const, error: "Password must match (6+ chars)" };
+  }
+  const { consumePasswordResetToken } = await import("./store");
+  const userId = await consumePasswordResetToken(token);
+  if (!userId) return { ok: false as const, error: "Link expired or invalid" };
+  await updateUser(userId, {
+    passwordHash: await hashPassword(password),
+    mustSetPassword: false,
+  });
   return { ok: true as const };
 }
 
@@ -597,6 +680,7 @@ export async function updateAccountCredentialsAction(formData: FormData) {
   const { user: actor } = await requireSession(["teacher", "admin"]);
   const targetUserId = String(formData.get("userId") || "").trim() || actor.id;
   const username = normalizeUsername(String(formData.get("username") || ""));
+  const emailRaw = String(formData.get("email") || "").trim().toLowerCase();
   const password = String(formData.get("password") || "");
   const confirm = String(formData.get("confirm") || "");
   const currentPassword = String(formData.get("currentPassword") || "");
@@ -627,6 +711,12 @@ export async function updateAccountCredentialsAction(formData: FormData) {
   if (taken && taken.id !== target.id) {
     return { ok: false as const, error: "Username already taken" };
   }
+  if (emailRaw) {
+    const emailTaken = await getUserByEmail(emailRaw);
+    if (emailTaken && emailTaken.id !== target.id) {
+      return { ok: false as const, error: "Email already used" };
+    }
+  }
   if (password) {
     if (password.length < 6 || password !== confirm) {
       return { ok: false as const, error: "Password must match (6+ chars)" };
@@ -635,6 +725,7 @@ export async function updateAccountCredentialsAction(formData: FormData) {
 
   await updateUser(target.id, {
     username,
+    email: emailRaw || undefined,
     passwordHash: password ? await hashPassword(password) : undefined,
   });
 
@@ -732,14 +823,7 @@ export async function createTeacherAccountAction(formData: FormData) {
     userId,
     active: true,
   });
-  await replaceAvailability(teacherId, [
-    { dayOfWeek: 0, startHour: 18, endHour: 22 },
-    { dayOfWeek: 1, startHour: 17, endHour: 21 },
-    { dayOfWeek: 2, startHour: 18, endHour: 22 },
-    { dayOfWeek: 3, startHour: 17, endHour: 21 },
-    { dayOfWeek: 4, startHour: 16, endHour: 20 },
-    { dayOfWeek: 6, startHour: 10, endHour: 14 },
-  ]);
+  await replaceAvailability(teacherId, fullWeekAvailabilityTemplate());
 
   revalidatePath("/admin/teachers");
   revalidatePath("/teachers");

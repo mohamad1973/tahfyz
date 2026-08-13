@@ -6,6 +6,7 @@ import {
   fetchChatMessagesAction,
   sendChatMessageAction,
 } from "@/lib/actions";
+import { useI18n } from "@/lib/i18n/provider";
 
 type SpeechRecognitionLike = {
   lang: string;
@@ -13,7 +14,11 @@ type SpeechRecognitionLike = {
   interimResults: boolean;
   start: () => void;
   stop: () => void;
-  onresult: ((ev: { results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }) => void) | null;
+  onresult:
+    | ((ev: {
+        results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }>;
+      }) => void)
+    | null;
   onerror: ((ev: { error: string }) => void) | null;
   onend: (() => void) | null;
 };
@@ -38,6 +43,7 @@ export function LessonChatClient({
   role: "student" | "teacher";
   peerName: string;
 }) {
+  const { t, lang } = useI18n();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState("");
   const [listening, setListening] = useState(false);
@@ -94,7 +100,11 @@ export function LessonChatClient({
     setError(null);
     const Ctor = getSpeechRecognition();
     if (!Ctor) {
-      setError("المتصفح لا يدعم التعرف على الصوت. استخدم Chrome واكتب النص.");
+      setError(
+        lang === "ar"
+          ? "المتصفح لا يدعم التعرف على الصوت. استخدم Chrome واكتب النص."
+          : "Speech recognition is not supported. Use Chrome or type your message.",
+      );
       return;
     }
     const rec = new Ctor();
@@ -115,7 +125,13 @@ export function LessonChatClient({
       setInterim(interimChunk);
     };
     rec.onerror = (ev) => {
-      setError(ev.error === "not-allowed" ? "اسمح بالميكروفون من المتصفح" : ev.error);
+      setError(
+        ev.error === "not-allowed"
+          ? lang === "ar"
+            ? "اسمح بالميكروفون من المتصفح"
+            : "Allow microphone access in the browser"
+          : ev.error,
+      );
       setListening(false);
     };
     rec.onend = () => {
@@ -157,19 +173,17 @@ export function LessonChatClient({
     <div className="flex h-[min(70vh,640px)] flex-col rounded-2xl border border-line bg-card">
       <div className="border-b border-line px-4 py-3">
         <div className="font-display text-lg text-olive-deep">
-          درس مع {peerName}
+          {t.chatWith} {peerName}
         </div>
         <p className="text-xs text-ink-muted">
-          {role === "student"
-            ? "تكلم بالإنجليزية → يظهر النص EN والترجمة AR"
-            : "تكلم بالعربية → يظهر النص AR والترجمة EN"}
+          {role === "student" ? t.micHintStudent : t.micHintTeacher}
         </p>
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
         {messages.length === 0 && (
           <p className="text-center text-sm text-ink-muted">
-            ابدأ بالضغط على الميكروفون أو اكتب رسالة.
+            {listening ? t.listening : t.holdToSpeak}
           </p>
         )}
         {messages.map((m) => {
@@ -186,7 +200,10 @@ export function LessonChatClient({
               <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
                 {m.originalLang === "en" ? "English" : "العربية"}
               </div>
-              <p className="mt-0.5 whitespace-pre-wrap" dir={m.originalLang === "ar" ? "rtl" : "ltr"}>
+              <p
+                className="mt-0.5 whitespace-pre-wrap"
+                dir={m.originalLang === "ar" ? "rtl" : "ltr"}
+              >
                 {m.originalText}
               </p>
               <div className="mt-2 border-t border-line/70 pt-2">
@@ -222,7 +239,7 @@ export function LessonChatClient({
                 : "border border-line hover:bg-bg-deep"
             }`}
           >
-            {listening ? "إيقاف الميكروفون" : "🎤 تكلم"}
+            {listening ? t.listening : t.holdToSpeak}
           </button>
           <button
             type="button"
@@ -230,18 +247,14 @@ export function LessonChatClient({
             onClick={send}
             className="rounded-xl bg-olive px-4 py-2 text-sm font-semibold text-card disabled:opacity-60"
           >
-            إرسال + ترجمة
+            {t.send}
           </button>
         </div>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
           rows={2}
-          placeholder={
-            role === "teacher"
-              ? "اكتب أو تكلم بالعربية…"
-              : "Type or speak in English…"
-          }
+          placeholder={t.typeMessage}
           dir={role === "teacher" ? "rtl" : "ltr"}
           className="mt-2 w-full rounded-xl border border-line bg-bg px-3 py-2 text-sm"
         />

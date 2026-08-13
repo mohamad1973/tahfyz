@@ -28,6 +28,15 @@ export async function verifyPassword(
 export const HOLD_HOURS = 24;
 export const EGYPT_TZ = "Africa/Cairo";
 
+/** Full-day windows for trial booking (every day, every hour). */
+export function fullWeekAvailabilityTemplate() {
+  return [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
+    dayOfWeek,
+    startHour: 0,
+    endHour: 24,
+  }));
+}
+
 /** Lowercase letters, digits, underscore; 3–32 chars */
 export function normalizeUsername(raw: string): string {
   return raw.trim().toLowerCase();

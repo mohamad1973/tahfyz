@@ -110,7 +110,7 @@ async function main() {
   await prisma.user.deleteMany();
 
   const now = new Date();
-  const teacherPass = hashPassword("teacher123");
+  const teacherPass = hashPassword("123456");
 
   await prisma.user.create({
     data: {
@@ -169,14 +169,11 @@ async function main() {
     });
   }
 
-  const windows = [
-    { dayOfWeek: 0, startHour: 18, endHour: 22 },
-    { dayOfWeek: 1, startHour: 17, endHour: 21 },
-    { dayOfWeek: 2, startHour: 18, endHour: 22 },
-    { dayOfWeek: 3, startHour: 17, endHour: 21 },
-    { dayOfWeek: 4, startHour: 16, endHour: 20 },
-    { dayOfWeek: 6, startHour: 10, endHour: 14 },
-  ];
+  const windows = [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
+    dayOfWeek,
+    startHour: 0,
+    endHour: 24,
+  }));
 
   for (const t of teachers) {
     for (const w of windows) {

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Fraunces, Source_Sans_3 } from "next/font/google";
+import { LanguageProvider } from "@/lib/i18n/provider";
 import "./globals.css";
 
 const display = Fraunces({
@@ -29,9 +30,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${display.variable} ${body.variable} h-full`}>
+    <html lang="ar" dir="rtl" className={`${display.variable} ${body.variable} h-full`}>
       <body suppressHydrationWarning className="min-h-full antialiased mesh-bg">
-        {children}
+        <LanguageProvider>{children}</LanguageProvider>
       </body>
     </html>
   );

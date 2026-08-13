@@ -52,6 +52,7 @@ export default async function AdminTeacherEditPage({
           <AccountCredentialsForm
             userId={account.id}
             username={account.username}
+            email={account.email}
             mode="admin"
           />
           <p className="mt-2 text-xs text-ink-muted">

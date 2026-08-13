@@ -723,3 +723,33 @@ export async function linkGuestBookingsToStudent(student: {
   return result.count;
 }
 
+export async function createPasswordResetToken(input: {
+  id: string;
+  userId: string;
+  token: string;
+  expiresAt: string;
+}): Promise<void> {
+  await prisma.passwordResetToken.deleteMany({ where: { userId: input.userId } });
+  await prisma.passwordResetToken.create({
+    data: {
+      id: input.id,
+      userId: input.userId,
+      token: input.token,
+      expiresAt: new Date(input.expiresAt),
+    },
+  });
+}
+
+export async function consumePasswordResetToken(
+  token: string,
+): Promise<string | null> {
+  const row = await prisma.passwordResetToken.findUnique({ where: { token } });
+  if (!row) return null;
+  if (row.expiresAt.getTime() < Date.now()) {
+    await prisma.passwordResetToken.delete({ where: { id: row.id } });
+    return null;
+  }
+  await prisma.passwordResetToken.delete({ where: { id: row.id } });
+  return row.userId;
+}
+

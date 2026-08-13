@@ -94,7 +94,7 @@ export function buildOpenSlots(opts: {
         );
         const startUtc = fromZonedTime(local, EGYPT_TZ);
         const endUtc = fromZonedTime(setHours(local, h + 1), EGYPT_TZ);
-        if (!isAfter(startUtc, now)) continue;
+        if (!isAfter(endUtc, now)) continue;
         if (findBooking(opts.bookings, startUtc, endUtc, now)) continue;
         result.push({
           start: startUtc.toISOString(),
@@ -119,8 +119,8 @@ export function buildCalendarWeek(opts: {
 }): CalendarWeek {
   const viewerTz =
     opts.viewerTz || Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const hourStart = opts.hourStart ?? 10;
-  const hourEnd = opts.hourEnd ?? 22;
+  const hourStart = opts.hourStart ?? 0;
+  const hourEnd = opts.hourEnd ?? 24;
   const now = new Date();
   const egyptNow = toZonedTime(now, EGYPT_TZ);
   const weekStartLocal = startOfWeek(
@@ -161,7 +161,7 @@ export function buildCalendarWeek(opts: {
       let status: CellStatus = "closed";
       if (!inWindow) {
         status = "closed";
-      } else if (!isAfter(startUtc, now)) {
+      } else if (!isAfter(endUtc, now)) {
         status = "past";
       } else {
         const booking = findBooking(opts.bookings, startUtc, endUtc, now);

@@ -2,8 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { linkChildAction } from "@/lib/actions";
+import { useI18n } from "@/lib/i18n/provider";
 
 export function LinkChildForm() {
+  const { t } = useI18n();
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
   const [pending, start] = useTransition();
@@ -22,10 +24,9 @@ export function LinkChildForm() {
       className="mt-3 flex flex-col gap-2 sm:flex-row"
     >
       <input
-        name="email"
-        type="email"
+        name="username"
         required
-        placeholder="Student email"
+        placeholder={t.studentUsername}
         className="flex-1 rounded-xl border border-line bg-bg px-3 py-2 text-sm"
       />
       <button
@@ -33,12 +34,10 @@ export function LinkChildForm() {
         disabled={pending}
         className="rounded-xl bg-olive px-4 py-2 text-sm font-semibold text-card disabled:opacity-60"
       >
-        Link child
+        {t.linkChild}
       </button>
       {error && <p className="w-full text-sm text-danger">{error}</p>}
-      {ok && (
-        <p className="w-full text-sm text-ok">Child linked successfully.</p>
-      )}
+      {ok && <p className="w-full text-sm text-ok">OK</p>}
     </form>
   );
 }

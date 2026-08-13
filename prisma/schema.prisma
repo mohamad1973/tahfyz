@@ -164,3 +164,13 @@ model ChatMessage {
 
   @@index([threadId, createdAt])
 }
+
+model PasswordResetToken {
+  id        String   @id
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}

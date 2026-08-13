@@ -7,9 +7,13 @@ import {
   registerParentAction,
   registerStudentAction,
 } from "@/lib/actions";
+import { useI18n } from "@/lib/i18n/provider";
+
+type Mode = "login" | "student" | "parent";
 
 export default function LoginPage() {
-  const [mode, setMode] = useState<"login" | "student" | "parent">("login");
+  const { t } = useI18n();
+  const [mode, setMode] = useState<Mode>("login");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
@@ -19,12 +23,12 @@ export default function LoginPage() {
         Tahfyz
       </Link>
       <div className="mt-8 w-full max-w-md rounded-2xl border border-line bg-card p-6 shadow-lg">
-        <div className="mb-4 grid grid-cols-3 gap-2">
+        <div className="mb-4 grid grid-cols-3 gap-1">
           {(
             [
-              ["login", "Sign in"],
-              ["student", "Student"],
-              ["parent", "Parent"],
+              ["login", t.signIn],
+              ["student", t.studentRegister],
+              ["parent", t.parentRegister],
             ] as const
           ).map(([key, label]) => (
             <button
@@ -40,7 +44,7 @@ export default function LoginPage() {
           ))}
         </div>
 
-        {mode === "login" ? (
+        {mode === "login" && (
           <form
             action={(fd) => {
               setError(null);
@@ -52,7 +56,7 @@ export default function LoginPage() {
             className="space-y-3"
           >
             <label className="block text-sm">
-              <span className="mb-1 block font-medium">Username</span>
+              <span className="mb-1 block font-medium">{t.username}</span>
               <input
                 name="username"
                 required
@@ -61,7 +65,7 @@ export default function LoginPage() {
               />
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium">Password</span>
+              <span className="mb-1 block font-medium">{t.password}</span>
               <input
                 name="password"
                 type="password"
@@ -75,13 +79,20 @@ export default function LoginPage() {
               disabled={pending}
               className="w-full rounded-xl bg-olive py-2.5 text-sm font-semibold text-card disabled:opacity-60"
             >
-              {pending ? "Signing in…" : "Sign in"}
+              {t.signIn}
             </button>
+            <p className="text-center text-xs">
+              <Link href="/forgot-password" className="underline">
+                {t.forgotPassword}
+              </Link>
+            </p>
             <p className="text-xs text-ink-muted leading-relaxed">
-              Demo: admin / admin123 · teachers: ahmed / teacher123
+              Demo: admin / admin123 · teachers: ahmed / 123456
             </p>
           </form>
-        ) : mode === "student" ? (
+        )}
+
+        {mode === "student" && (
           <form
             action={(fd) => {
               setError(null);
@@ -92,20 +103,12 @@ export default function LoginPage() {
             }}
             className="space-y-3"
           >
-            <p className="text-sm text-ink-muted">
-              Create your own student account — no parent required. Use the same
-              email you book with so your lessons and chat connect.
-            </p>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium">Full name</span>
-              <input
-                name="name"
-                required
-                className="w-full rounded-xl border border-line bg-bg px-3 py-2"
-              />
+              <span className="mb-1 block font-medium">{t.fullName}</span>
+              <input name="name" required className="w-full rounded-xl border border-line bg-bg px-3 py-2" />
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium">Username</span>
+              <span className="mb-1 block font-medium">{t.username}</span>
               <input
                 name="username"
                 required
@@ -114,15 +117,11 @@ export default function LoginPage() {
               />
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium">Email (recommended)</span>
-              <input
-                name="email"
-                type="email"
-                className="w-full rounded-xl border border-line bg-bg px-3 py-2"
-              />
+              <span className="mb-1 block font-medium">{t.emailOptional}</span>
+              <input name="email" type="email" className="w-full rounded-xl border border-line bg-bg px-3 py-2" />
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium">Password</span>
+              <span className="mb-1 block font-medium">{t.password}</span>
               <input
                 name="password"
                 type="password"
@@ -137,10 +136,12 @@ export default function LoginPage() {
               disabled={pending}
               className="w-full rounded-xl bg-olive py-2.5 text-sm font-semibold text-card disabled:opacity-60"
             >
-              Create student account
+              {t.createStudent}
             </button>
           </form>
-        ) : (
+        )}
+
+        {mode === "parent" && (
           <form
             action={(fd) => {
               setError(null);
@@ -151,16 +152,13 @@ export default function LoginPage() {
             }}
             className="space-y-3"
           >
+            <p className="text-xs text-ink-muted leading-relaxed">{t.parentHelp}</p>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium">Full name</span>
-              <input
-                name="name"
-                required
-                className="w-full rounded-xl border border-line bg-bg px-3 py-2"
-              />
+              <span className="mb-1 block font-medium">{t.fullName}</span>
+              <input name="name" required className="w-full rounded-xl border border-line bg-bg px-3 py-2" />
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium">Username</span>
+              <span className="mb-1 block font-medium">{t.username}</span>
               <input
                 name="username"
                 required
@@ -169,15 +167,11 @@ export default function LoginPage() {
               />
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium">Email (optional)</span>
-              <input
-                name="email"
-                type="email"
-                className="w-full rounded-xl border border-line bg-bg px-3 py-2"
-              />
+              <span className="mb-1 block font-medium">{t.emailOptional}</span>
+              <input name="email" type="email" className="w-full rounded-xl border border-line bg-bg px-3 py-2" />
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium">Password</span>
+              <span className="mb-1 block font-medium">{t.password}</span>
               <input
                 name="password"
                 type="password"
@@ -192,7 +186,7 @@ export default function LoginPage() {
               disabled={pending}
               className="w-full rounded-xl bg-olive py-2.5 text-sm font-semibold text-card disabled:opacity-60"
             >
-              Create parent account
+              {t.createParent}
             </button>
           </form>
         )}
