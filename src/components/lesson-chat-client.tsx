@@ -171,7 +171,7 @@ function HoldButton({
   return (
     <button
       type="button"
-      className={`w-full select-none rounded-xl px-4 py-3 text-base font-semibold touch-manipulation ${
+      className={`w-full select-none rounded-xl px-2 py-3 text-sm font-semibold touch-manipulation sm:px-4 sm:py-3 sm:text-base ${
         active
           ? "bg-danger text-card"
           : "bg-olive text-card hover:bg-olive-deep"
@@ -267,8 +267,8 @@ function ChatPane({
 }) {
   const inputDir = holdSide === "ar" ? "rtl" : "ltr";
   return (
-    <section className="flex min-h-[42vh] flex-1 flex-col md:min-h-0" dir={dir}>
-      <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
+    <section className="flex min-h-0 flex-1 flex-col" dir={dir}>
+      <div className="flex-1 space-y-2 overflow-y-auto px-2 py-2 sm:px-3 sm:py-3">
         {showInterim && interim && (
           <div className="rounded-xl border border-dashed border-line px-3 py-2 text-sm text-ink-muted">
             … {interim}
@@ -305,9 +305,9 @@ function ChatPane({
             <p className="text-center text-xs text-ink-muted">{empty}</p>
           )}
       </div>
-      <div className="space-y-2 border-t border-line p-3">
+      <div className="space-y-2 border-t border-line p-2 sm:p-3">
         {hasPendingAudio ? (
-          <p className="text-center text-[11px] text-olive">
+          <p className="text-center text-[10px] text-olive sm:text-[11px]">
             {audioReadyHint}{" "}
             <button
               type="button"
@@ -318,25 +318,27 @@ function ChatPane({
             </button>
           </p>
         ) : null}
-        <div className="flex gap-2">
+        <div className="flex gap-1.5 sm:gap-2">
           <textarea
             value={composerText}
             onChange={(e) => onComposerChange(e.target.value)}
-            rows={2}
+            rows={1}
             placeholder={typePlaceholder}
-            className="min-w-0 flex-1 rounded-xl border border-line bg-bg px-3 py-2 text-sm"
+            className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-2 py-1.5 text-xs sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm"
             dir={inputDir}
           />
           <button
             type="button"
             onClick={onSendText}
             disabled={!composerText.trim()}
-            className="shrink-0 self-stretch rounded-xl bg-olive px-3 py-2 text-sm font-semibold text-card disabled:opacity-50"
+            className="shrink-0 self-stretch rounded-lg bg-olive px-2 py-1.5 text-xs font-semibold text-card disabled:opacity-50 sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm"
           >
             {sendLabel}
           </button>
         </div>
-        <p className="text-center text-[11px] text-ink-muted">{holdHint}</p>
+        <p className="text-center text-[10px] text-ink-muted sm:text-[11px]">
+          {holdHint}
+        </p>
         <HoldButton
           side={holdSide}
           label={holdLabel}
@@ -403,7 +405,8 @@ export function LessonChatClient({
 
   useEffect(() => {
     setToggleMode(isMobileCapture());
-    useSpeechDuringRecordRef.current = !isMobileCapture();
+    // Enable Web Speech on mobile too when the browser supports it
+    useSpeechDuringRecordRef.current = true;
   }, []);
 
   function appendMessage(message: ChatMessage) {
@@ -553,18 +556,11 @@ export function LessonChatClient({
         recorder.mimeType ||
         recorderMimeRef.current ||
         "audio/webm;codecs=opus";
+      let settled = false;
 
-      // Keep existing handler that fills audioChunksRef — do not replace it
-      const prevHandler = recorder.ondataavailable;
-      recorder.ondataavailable = (ev) => {
-        if (typeof prevHandler === "function") {
-          prevHandler.call(recorder, ev);
-        } else if (ev.data && ev.data.size > 0) {
-          audioChunksRef.current.push(ev.data);
-        }
-      };
-
-      const finish = () => {
+      const settle = () => {
+        if (settled) return;
+        settled = true;
         const chunks = audioChunksRef.current.slice();
         audioChunksRef.current = [];
         if (!chunks.length) {
@@ -575,17 +571,25 @@ export function LessonChatClient({
         resolve(blob.size > 0 ? blob : null);
       };
 
-      recorder.onstop = () => finish();
-      recorder.onerror = () => finish();
+      // Keep collecting into audioChunksRef; wait past onstop for final chunk
+      recorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) audioChunksRef.current.push(ev.data);
+      };
+      recorder.onstop = () => {
+        window.setTimeout(settle, 80);
+      };
+      recorder.onerror = () => {
+        window.setTimeout(settle, 80);
+      };
 
       try {
-        if (recorder.state === "recording") {
+        if (recorder.state === "recording" || recorder.state === "paused") {
           recorder.stop();
         } else {
-          finish();
+          window.setTimeout(settle, 80);
         }
       } catch {
-        finish();
+        window.setTimeout(settle, 80);
       }
     });
   }
@@ -712,19 +716,16 @@ export function LessonChatClient({
     if (holdingRef.current || stoppingRef.current || startingRef.current) return;
     setError(null);
 
-    if (typeof MediaRecorder === "undefined") {
+    const Ctor = getSpeechRecognition();
+    const canRecord =
+      typeof MediaRecorder !== "undefined" &&
+      !!navigator.mediaDevices?.getUserMedia;
+
+    if (!canRecord && !Ctor) {
       setError(
         lang === "ar"
-          ? "هذا المتصفح لا يدعم تسجيل الصوت — اكتب في الحقل واضغط إرسال"
-          : "This browser cannot record audio — type in the box and press Send",
-      );
-      return;
-    }
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setError(
-        lang === "ar"
-          ? "الميكروفون غير متاح — اكتب في الحقل واضغط إرسال"
-          : "Microphone unavailable — type in the box and press Send",
+          ? "لا يتوفر تسجيل ولا تعرف صوت — اكتب في الحقل واضغط إرسال"
+          : "No recorder or speech recognition — type in the box and press Send",
       );
       return;
     }
@@ -739,49 +740,55 @@ export function LessonChatClient({
     startingRef.current = true;
     stopRequestedRef.current = false;
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          channelCount: 1,
-        },
-      });
+    let recorderStarted = false;
 
-      if (holdingRef.current !== side) {
-        stream.getTracks().forEach((tr) => tr.stop());
-        startingRef.current = false;
-        return;
-      }
-
-      mediaStreamRef.current = stream;
-      const mime = pickAudioMime();
-      recorderMimeRef.current = mime || "audio/mp4";
-      let recorder: MediaRecorder;
+    if (canRecord) {
       try {
-        recorder = mime
-          ? new MediaRecorder(stream, { mimeType: mime })
-          : new MediaRecorder(stream);
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            channelCount: 1,
+          },
+        });
+
+        if (holdingRef.current !== side) {
+          stream.getTracks().forEach((tr) => tr.stop());
+          startingRef.current = false;
+          return;
+        }
+
+        mediaStreamRef.current = stream;
+        const mime = pickAudioMime();
+        recorderMimeRef.current = mime || "audio/mp4";
+        let recorder: MediaRecorder;
+        try {
+          recorder = mime
+            ? new MediaRecorder(stream, { mimeType: mime })
+            : new MediaRecorder(stream);
+        } catch {
+          recorder = new MediaRecorder(stream);
+        }
+        recorder.ondataavailable = (ev) => {
+          if (ev.data && ev.data.size > 0) audioChunksRef.current.push(ev.data);
+        };
+        mediaRecorderRef.current = recorder;
+        recorder.start();
+        recorderStarted = true;
       } catch {
-        recorder = new MediaRecorder(stream);
+        setError(
+          lang === "ar"
+            ? "اسمح بالميكروفون، أو اكتب في الحقل واضغط إرسال"
+            : "Allow the microphone, or type in the box and press Send",
+        );
+        if (!Ctor) {
+          holdingRef.current = null;
+          setHolding(null);
+          startingRef.current = false;
+          stopRequestedRef.current = false;
+          return;
+        }
       }
-      recorder.ondataavailable = (ev) => {
-        if (ev.data && ev.data.size > 0) audioChunksRef.current.push(ev.data);
-      };
-      mediaRecorderRef.current = recorder;
-      // No timeslice — full blob on stop (avoids dropped / truncated audio)
-      recorder.start();
-    } catch {
-      setError(
-        lang === "ar"
-          ? "اسمح بالميكروفون، أو اكتب في الحقل واضغط إرسال"
-          : "Allow the microphone, or type in the box and press Send",
-      );
-      holdingRef.current = null;
-      setHolding(null);
-      startingRef.current = false;
-      stopRequestedRef.current = false;
-      return;
     }
 
     startingRef.current = false;
@@ -791,14 +798,20 @@ export function LessonChatClient({
       return;
     }
 
-    if (useSpeechDuringRecordRef.current) {
-      const Ctor = getSpeechRecognition();
-      if (Ctor) {
-        speechDelayTimerRef.current = window.setTimeout(() => {
-          if (holdingRef.current !== side) return;
-          beginSpeechRecognition(Ctor, side);
-        }, 150);
-      }
+    // Web Speech for translation text (desktop + mobile when supported)
+    if (Ctor && useSpeechDuringRecordRef.current) {
+      speechDelayTimerRef.current = window.setTimeout(() => {
+        if (holdingRef.current !== side) return;
+        beginSpeechRecognition(Ctor, side);
+      }, recorderStarted ? 150 : 0);
+    } else if (!recorderStarted) {
+      holdingRef.current = null;
+      setHolding(null);
+      setError(
+        lang === "ar"
+          ? "تعذر بدء التسجيل — اكتب في الحقل واضغط إرسال"
+          : "Could not start recording — type in the box and press Send",
+      );
     }
   }
 
@@ -898,11 +911,11 @@ export function LessonChatClient({
       </div>
 
       <div
-        className="grid min-h-0 flex-1 grid-cols-1 divide-y divide-line md:grid-cols-2 md:divide-x md:divide-y-0"
+        className="grid min-h-0 flex-1 grid-cols-2 divide-x divide-line"
         dir="ltr"
       >
-        <div className="flex min-h-0 flex-col md:border-r md:border-line">
-          <header className="border-b border-line bg-bg-deep/50 px-3 py-2 text-center text-xs font-semibold text-ink-muted">
+        <div className="flex min-h-0 flex-col border-r border-line">
+          <header className="border-b border-line bg-bg-deep/50 px-2 py-2 text-center text-[11px] font-semibold text-ink-muted sm:px-3 sm:text-xs">
             English → العربية
           </header>
           <ChatPane
@@ -937,7 +950,7 @@ export function LessonChatClient({
           />
         </div>
         <div className="flex min-h-0 flex-col">
-          <header className="border-b border-line bg-bg-deep/50 px-3 py-2 text-center text-xs font-semibold text-ink-muted">
+          <header className="border-b border-line bg-bg-deep/50 px-2 py-2 text-center text-[11px] font-semibold text-ink-muted sm:px-3 sm:text-xs">
             العربية → English
           </header>
           <ChatPane
