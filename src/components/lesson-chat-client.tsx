@@ -9,29 +9,9 @@ import {
   deleteChatMessageAction,
   fetchChatMessagesAction,
   sendChatMessageAction,
+  transcribeChatAudioAction,
 } from "@/lib/actions";
 import { useI18n } from "@/lib/i18n/provider";
-
-type SpeechRecognitionLike = {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  start: () => void;
-  stop: () => void;
-  abort?: () => void;
-  onresult:
-    | ((ev: {
-        resultIndex: number;
-        results: ArrayLike<{
-          0: { transcript: string };
-          isFinal: boolean;
-          length: number;
-        }>;
-      }) => void)
-    | null;
-  onerror: ((ev: { error: string }) => void) | null;
-  onend: (() => void) | null;
-};
 
 type PendingBubble = {
   id: string;
@@ -43,15 +23,6 @@ type PendingAudio = {
   originalLang: ChatLang;
   blob: Blob;
 };
-
-function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
-  if (typeof window === "undefined") return null;
-  const w = window as unknown as {
-    SpeechRecognition?: new () => SpeechRecognitionLike;
-    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
-  };
-  return w.SpeechRecognition || w.webkitSpeechRecognition || null;
-}
 
 function isMobileCapture(): boolean {
   if (typeof window === "undefined") return false;
@@ -95,25 +66,6 @@ function collapseRepeatedSpeech(text: string): string {
     s = s.replace(re, "$1");
   }
   return s.trim();
-}
-
-function mergeSpeechChunk(prev: string, chunk: string): string {
-  const c = chunk.trim();
-  if (!c) return prev.trim();
-  if (!prev.trim()) return collapseRepeatedSpeech(c);
-  if (prev.endsWith(c) || c === prev) return collapseRepeatedSpeech(prev);
-  const prevWords = prev.trim().split(/\s+/);
-  const chunkWords = c.split(/\s+/);
-  let overlap = 0;
-  const max = Math.min(prevWords.length, chunkWords.length);
-  for (let i = 1; i <= max; i++) {
-    if (prevWords.slice(-i).join(" ") === chunkWords.slice(0, i).join(" ")) {
-      overlap = i;
-    }
-  }
-  return collapseRepeatedSpeech(
-    `${prev} ${chunkWords.slice(overlap).join(" ")}`.trim(),
-  );
 }
 
 function byNewest(a: ChatMessage, b: ChatMessage) {
@@ -444,25 +396,26 @@ export function LessonChatClient({
   const [composerEn, setComposerEn] = useState("");
   const [composerAr, setComposerAr] = useState("");
   const [pendingAudio, setPendingAudio] = useState<PendingAudio | null>(null);
+  const [transcribingSide, setTranscribingSide] = useState<ChatLang | null>(
+    null,
+  );
 
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const recognitionRef = useRef<{
+    abort?: () => void;
+    stop: () => void;
+  } | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const holdingRef = useRef<ChatLang | null>(null);
-  const finalsRef = useRef("");
-  const sessionFinalsRef = useRef("");
-  const interimRef = useRef("");
   const composerEnRef = useRef("");
   const composerArRef = useRef("");
-  const composerLockedRef = useRef(false);
   const sendQueueRef = useRef<Promise<void>>(Promise.resolve());
   const stoppingRef = useRef(false);
   const startingRef = useRef(false);
   const stopRequestedRef = useRef(false);
   const speechDelayTimerRef = useRef<number | undefined>(undefined);
   const recorderMimeRef = useRef("audio/webm;codecs=opus");
-  const useSpeechDuringRecordRef = useRef(true);
   const lastTalkSideRef = useRef<ChatLang>("ar");
 
   const leftMessages = useMemo(
@@ -478,7 +431,6 @@ export function LessonChatClient({
 
   useEffect(() => {
     setTouchUi(isMobileCapture());
-    useSpeechDuringRecordRef.current = true;
   }, []);
 
   useEffect(() => {
@@ -541,15 +493,7 @@ export function LessonChatClient({
     }
   }
 
-  function updateComposerFromSpeech(side: ChatLang, text: string) {
-    if (composerLockedRef.current) return;
-    setComposer(side, text);
-  }
-
   function onComposerEdit(side: ChatLang, text: string) {
-    if (holdingRef.current === side) {
-      composerLockedRef.current = true;
-    }
     setComposer(side, text);
   }
 
@@ -588,11 +532,14 @@ export function LessonChatClient({
     text: string,
     originalLang: ChatLang,
     audioBlob: Blob | null,
+    audioUrlReady?: string,
   ) {
     const payload = collapseRepeatedSpeech(text.trim());
     if (!payload) {
       if (audioBlob && audioBlob.size >= 500) {
         setPendingAudio({ originalLang, blob: audioBlob });
+        setError(t.typeWhatYouSaid);
+      } else if (audioUrlReady) {
         setError(t.typeWhatYouSaid);
       } else {
         setError(t.noSpeechHeard);
@@ -611,8 +558,8 @@ export function LessonChatClient({
 
     sendQueueRef.current = sendQueueRef.current.then(async () => {
       setError(null);
-      let audioUrl: string | undefined;
-      if (audioBlob && audioBlob.size >= 500) {
+      let audioUrl = audioUrlReady?.trim() || undefined;
+      if (!audioUrl && audioBlob && audioBlob.size >= 500) {
         try {
           audioUrl = await uploadAudioBlob(audioBlob);
         } catch (e) {
@@ -622,7 +569,12 @@ export function LessonChatClient({
               : `Audio upload failed: ${e instanceof Error ? e.message : "error"}`,
           );
         }
-      } else if (audioBlob && audioBlob.size > 0 && audioBlob.size < 500) {
+      } else if (
+        !audioUrl &&
+        audioBlob &&
+        audioBlob.size > 0 &&
+        audioBlob.size < 500
+      ) {
         setError(
           lang === "ar"
             ? "التسجيل قصير جداً — سجّل مدة أطول أثناء الكلام"
@@ -643,6 +595,54 @@ export function LessonChatClient({
       }
       appendMessage(res.message);
     });
+  }
+
+  async function processRecordedAudio(side: ChatLang, audioBlob: Blob | null) {
+    if (!audioBlob || audioBlob.size < 500) {
+      setError(
+        lang === "ar"
+          ? "الصوت المسجّل ضعيف — سجّل مدة أطول"
+          : "Audio is weak — record longer",
+      );
+      return;
+    }
+
+    setError(null);
+    setTranscribingSide(side);
+    setInterim(t.transcribingAudio);
+    try {
+      const audioUrl = await uploadAudioBlob(audioBlob);
+      const stt = await transcribeChatAudioAction({
+        threadId,
+        audioUrl,
+        originalLang: side,
+      });
+      setInterim("");
+      setTranscribingSide(null);
+      if (stt.ok && stt.text.trim()) {
+        const text = collapseRepeatedSpeech(stt.text);
+        setComposer(side, text);
+        sendFinal(text, side, null, audioUrl);
+        return;
+      }
+      setPendingAudio({ originalLang: side, blob: audioBlob });
+      setError(
+        stt.ok
+          ? t.typeWhatYouSaid
+          : lang === "ar"
+            ? `تعذر تحويل الصوت إلى نص: ${stt.error} — اكتب الجملة ثم إرسال`
+            : `Could not transcribe: ${stt.error} — type the sentence then Send`,
+      );
+    } catch (e) {
+      setInterim("");
+      setTranscribingSide(null);
+      setPendingAudio({ originalLang: side, blob: audioBlob });
+      setError(
+        lang === "ar"
+          ? `فشل المعالجة: ${e instanceof Error ? e.message : "خطأ"} — اكتب الجملة ثم إرسال`
+          : `Processing failed: ${e instanceof Error ? e.message : "error"} — type then Send`,
+      );
+    }
   }
 
   function sendComposer(side: ChatLang) {
@@ -716,7 +716,6 @@ export function LessonChatClient({
     setHolding(null);
     clearSpeechDelay();
     stopRequestedRef.current = false;
-    const voiceNoteMode = touchUi || isMobileCapture();
 
     const rec = recognitionRef.current;
     recognitionRef.current = null;
@@ -727,23 +726,6 @@ export function LessonChatClient({
       /* ignore */
     }
 
-    let textForSend = "";
-    if (!voiceNoteMode) {
-      const speechText = collapseRepeatedSpeech(
-        `${finalsRef.current} ${sessionFinalsRef.current} ${interimRef.current}`.trim(),
-      );
-      if (speechText && !composerLockedRef.current) {
-        setComposer(side, speechText);
-      } else if (speechText && !getComposer(side).trim()) {
-        setComposer(side, speechText);
-      }
-      textForSend = collapseRepeatedSpeech(
-        (getComposer(side).trim() || speechText).trim(),
-      );
-    }
-    finalsRef.current = "";
-    sessionFinalsRef.current = "";
-    interimRef.current = "";
     setInterim("");
 
     const recorder = mediaRecorderRef.current;
@@ -752,111 +734,19 @@ export function LessonChatClient({
     const finish = (audioBlob: Blob | null) => {
       stopMediaTracks();
       stoppingRef.current = false;
-      composerLockedRef.current = false;
       setMicStatus((s) =>
         s === "live" || s === "requesting" ? "idle" : s,
       );
-
-      // Mobile voice-note: attach audio only — user types/edits then presses Send
-      if (voiceNoteMode) {
-        if (audioBlob && audioBlob.size >= 500) {
-          setPendingAudio({ originalLang: side, blob: audioBlob });
-          setError(t.typeWhatYouSaid);
-        } else if (audioBlob && audioBlob.size > 0 && audioBlob.size < 500) {
-          setError(
-            lang === "ar"
-              ? "الصوت المسجّل ضعيف — سجّل مدة أطول ثم اكتب الجملة وأرسل"
-              : "Audio is weak — record longer, then type the sentence and Send",
-          );
-        } else {
-          setError(
-            lang === "ar"
-              ? "لم يُسجَّل صوت — اضغط تحدث مجدداً أو اكتب وأرسل"
-              : "No audio recorded — tap Talk again or type and Send",
-          );
-        }
-        return;
-      }
-
-      sendFinal(textForSend, side, audioBlob);
+      void processRecordedAudio(side, audioBlob);
     };
 
     if (recorder && recorder.state !== "inactive") {
       window.setTimeout(() => {
-        void stopRecorderToBlob(recorder).then((blob) => {
-          if (!voiceNoteMode && blob && blob.size < 500) {
-            setError(
-              lang === "ar"
-                ? "الصوت المسجّل ضعيف — يمكنك إرسال النص من الحقل أو إعادة التسجيل"
-                : "Audio is weak — send text from the box or record again",
-            );
-          }
-          finish(blob);
-        });
+        void stopRecorderToBlob(recorder).then((blob) => finish(blob));
       }, 120);
     } else {
       audioChunksRef.current = [];
       finish(null);
-    }
-  }
-
-  function beginSpeechRecognition(
-    Ctor: new () => SpeechRecognitionLike,
-    side: ChatLang,
-  ) {
-    const rec = new Ctor();
-    rec.lang = side === "ar" ? "ar-SA" : "en-US";
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.onresult = (ev) => {
-      let sessionFinals = "";
-      let interimChunk = "";
-      for (let i = 0; i < ev.results.length; i++) {
-        const r = ev.results[i];
-        const transcript = r[0]?.transcript ?? "";
-        if (r.isFinal) sessionFinals += `${transcript} `;
-        else interimChunk += transcript;
-      }
-      sessionFinalsRef.current = collapseRepeatedSpeech(sessionFinals);
-      interimRef.current = interimChunk.trim();
-      const display = collapseRepeatedSpeech(
-        `${finalsRef.current} ${sessionFinalsRef.current} ${interimChunk}`.trim(),
-      );
-      setInterim(display);
-      updateComposerFromSpeech(side, display);
-    };
-    rec.onerror = (ev) => {
-      if (ev.error === "aborted" || ev.error === "no-speech") return;
-      setError(
-        ev.error === "not-allowed"
-          ? lang === "ar"
-            ? "اسمح بالميكروفون من المتصفح"
-            : "Allow microphone access in the browser"
-          : ev.error === "service-not-allowed" || ev.error === "network"
-            ? t.speechUnsupported
-            : ev.error,
-      );
-      if (ev.error === "not-allowed") setMicStatus("denied");
-    };
-    rec.onend = () => {
-      if (holdingRef.current !== side) return;
-      // Commit this recognition segment once, then restart without re-stacking duplicates
-      finalsRef.current = mergeSpeechChunk(
-        finalsRef.current,
-        sessionFinalsRef.current,
-      );
-      sessionFinalsRef.current = "";
-      try {
-        rec.start();
-      } catch {
-        /* ignore */
-      }
-    };
-    recognitionRef.current = rec;
-    try {
-      rec.start();
-    } catch {
-      /* ignore */
     }
   }
 
@@ -865,38 +755,23 @@ export function LessonChatClient({
       return;
     }
     setError(null);
+    setPendingAudio(null);
     lastTalkSideRef.current = side;
 
-    const Ctor = getSpeechRecognition();
     const canRecord =
       typeof MediaRecorder !== "undefined" &&
       !!navigator.mediaDevices?.getUserMedia;
-    const voiceNoteMode = touchUi || isMobileCapture();
 
-    // Mobile: audio-only voice note — never start Web Speech (mic conflict)
-    if (voiceNoteMode) {
-      if (!canRecord) {
-        setError(
-          lang === "ar"
-            ? "التسجيل غير متاح — اكتب في الحقل واضغط إرسال"
-            : "Recording unavailable — type in the box and press Send",
-        );
-        return;
-      }
-    } else if (!canRecord && !Ctor) {
+    if (!canRecord) {
       setError(
         lang === "ar"
-          ? "لا يتوفر تسجيل ولا تعرف صوت — اكتب في الحقل واضغط إرسال"
-          : "No recorder or speech recognition — type in the box and press Send",
+          ? "التسجيل غير متاح — اكتب في الحقل واضغط إرسال"
+          : "Recording unavailable — type in the box and press Send",
       );
       return;
     }
 
-    finalsRef.current = "";
-    sessionFinalsRef.current = "";
-    interimRef.current = "";
     audioChunksRef.current = [];
-    composerLockedRef.current = false;
     holdingRef.current = side;
     setHolding(side);
     setInterim("");
@@ -904,102 +779,70 @@ export function LessonChatClient({
     startingRef.current = true;
     stopRequestedRef.current = false;
 
-    let recorderStarted = false;
+    setMicStatus("requesting");
+    try {
+      // CRITICAL: do not await anything before getUserMedia (Safari user-gesture)
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          channelCount: 1,
+        },
+      });
 
-    if (canRecord) {
-      setMicStatus("requesting");
-      try {
-        // CRITICAL: do not await anything before getUserMedia (Safari user-gesture)
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            channelCount: 1,
-          },
-        });
+      const liveTracks = stream
+        .getAudioTracks()
+        .filter((tr) => tr.readyState === "live" && tr.enabled);
 
-        const liveTracks = stream
-          .getAudioTracks()
-          .filter((tr) => tr.readyState === "live" && tr.enabled);
-
-        if (!liveTracks.length) {
-          stream.getTracks().forEach((tr) => tr.stop());
-          setMicStatus("dead");
-          setError(t.micDeadHelp);
-          holdingRef.current = null;
-          setHolding(null);
-          startingRef.current = false;
-          stopRequestedRef.current = false;
-          return;
-        }
-
-        if (holdingRef.current !== side) {
-          stream.getTracks().forEach((tr) => tr.stop());
-          startingRef.current = false;
-          setMicStatus("idle");
-          return;
-        }
-
-        mediaStreamRef.current = stream;
-        setMicStatus("live");
-        const mime = pickAudioMime();
-        recorderMimeRef.current = mime || "audio/mp4";
-        let recorder: MediaRecorder;
-        try {
-          recorder = mime
-            ? new MediaRecorder(stream, { mimeType: mime })
-            : new MediaRecorder(stream);
-        } catch {
-          recorder = new MediaRecorder(stream);
-        }
-        recorder.ondataavailable = (ev) => {
-          if (ev.data && ev.data.size > 0) audioChunksRef.current.push(ev.data);
-        };
-        mediaRecorderRef.current = recorder;
-        recorder.start();
-        recorderStarted = true;
-      } catch {
-        setMicStatus("denied");
-        setError(t.micDeniedHelp);
+      if (!liveTracks.length) {
+        stream.getTracks().forEach((tr) => tr.stop());
+        setMicStatus("dead");
+        setError(t.micDeadHelp);
         holdingRef.current = null;
         setHolding(null);
         startingRef.current = false;
         stopRequestedRef.current = false;
         return;
       }
+
+      if (holdingRef.current !== side) {
+        stream.getTracks().forEach((tr) => tr.stop());
+        startingRef.current = false;
+        setMicStatus("idle");
+        return;
+      }
+
+      mediaStreamRef.current = stream;
+      setMicStatus("live");
+      const mime = pickAudioMime();
+      recorderMimeRef.current = mime || "audio/mp4";
+      let recorder: MediaRecorder;
+      try {
+        recorder = mime
+          ? new MediaRecorder(stream, { mimeType: mime })
+          : new MediaRecorder(stream);
+      } catch {
+        recorder = new MediaRecorder(stream);
+      }
+      recorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) audioChunksRef.current.push(ev.data);
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+    } catch {
+      setMicStatus("denied");
+      setError(t.micDeniedHelp);
+      holdingRef.current = null;
+      setHolding(null);
+      startingRef.current = false;
+      stopRequestedRef.current = false;
+      return;
     }
 
     startingRef.current = false;
 
     if (stopRequestedRef.current) {
       stopHoldAndTranslate();
-      return;
-    }
-
-    // Desktop only: STT after recorder owns the mic
-    if (!voiceNoteMode && Ctor && useSpeechDuringRecordRef.current) {
-      speechDelayTimerRef.current = window.setTimeout(() => {
-        if (holdingRef.current !== side) return;
-        beginSpeechRecognition(Ctor, side);
-      }, recorderStarted ? 150 : 0);
-    } else if (!voiceNoteMode && !recorderStarted && !Ctor) {
-      holdingRef.current = null;
-      setHolding(null);
-      setMicStatus((s) => (s === "live" ? "idle" : s));
-      setError(
-        lang === "ar"
-          ? "تعذر بدء التسجيل — اكتب في الحقل واضغط إرسال"
-          : "Could not start recording — type in the box and press Send",
-      );
-    } else if (voiceNoteMode && !recorderStarted) {
-      holdingRef.current = null;
-      setHolding(null);
-      setMicStatus("idle");
-      setError(
-        lang === "ar"
-          ? "تعذر بدء التسجيل — اكتب في الحقل واضغط إرسال"
-          : "Could not start recording — type in the box and press Send",
-      );
     }
   }
 
@@ -1136,7 +979,7 @@ export function LessonChatClient({
           <ChatPane
             items={leftMessages}
             pendingItems={leftPending}
-            showInterim={holding === "en"}
+            showInterim={holding === "en" || transcribingSide === "en"}
             interim={interim}
             composerText={composerEn}
             hasPendingAudio={pendingAudio?.originalLang === "en"}
@@ -1174,7 +1017,7 @@ export function LessonChatClient({
           <ChatPane
             items={rightMessages}
             pendingItems={rightPending}
-            showInterim={holding === "ar"}
+            showInterim={holding === "ar" || transcribingSide === "ar"}
             interim={interim}
             composerText={composerAr}
             hasPendingAudio={pendingAudio?.originalLang === "ar"}

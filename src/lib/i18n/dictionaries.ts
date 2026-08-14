@@ -73,6 +73,7 @@ export type Dictionary = {
   speechUnsupported: string;
   noSpeechHeard: string;
   uploadingAudio: string;
+  transcribingAudio: string;
   typeWhatYouSaid: string;
   sendWithAudio: string;
   deleteLine: string;
@@ -151,14 +152,14 @@ export const dictionaries: Record<Lang, Dictionary> = {
     micHintTeacher:
       "تكلم عربي أو إنجليزي — الترجمة تظهر للطرفين في العمودين.",
     micHintBoth:
-      "على الموبايل: سجّل الصوت ثم اكتب الجملة واضغط إرسال (ترجمة + صوت). على الكمبيوتر: اضغط باستمرار للتحدث والترجمة تلقائياً.",
+      "سجّل بالصوت — بعد التوقّف يُحوَّل الكلام إلى نص ثم يُترجم تلقائياً (معلم وطالب).",
     paneLeftEmpty: "الكلام الإنجليزي يظهر هنا مترجماً للعربية",
     paneRightEmpty: "الكلام العربي يظهر هنا مترجماً للإنجليزية",
     clearChat: "مسح المحادثة",
     talk: "Talk",
     speakAr: "تحدث",
-    holdToRecord: "اضغط باستمرار للتسجيل — ارفع للإرسال والترجمة",
-    tapToRecord: "اضغط للتسجيل — أوقف ثم اكتب الجملة واضغط إرسال",
+    holdToRecord: "اضغط باستمرار للتسجيل — ارفع للتحويل والترجمة",
+    tapToRecord: "اضغط للتسجيل — اضغط مجدداً للإيقاف ثم التحويل والترجمة",
     tapToStop: "يسجّل… اضغط للإيقاف",
     recording: "يسجّل… ارفع للإرسال",
     requestingMic: "جاري طلب الميكروفون…",
@@ -168,9 +169,10 @@ export const dictionaries: Record<Lang, Dictionary> = {
       "الميكروفون غير فعّال. تأكد أنه مفتوح في إعدادات الهاتف والمتصفح ثم أعد المحاولة.",
     micRetry: "إعادة محاولة الميكروفون",
     speechUnsupported:
-      "هذا المتصفح لا يدعم التحدث التلقائي. اكتب في الحقل أو سجّل الصوت ثم أرسل.",
-    noSpeechHeard: "اكتب الجملة في الحقل ثم إرسال. يمكنك إرفاق صوت بزر تحدث.",
+      "تعذر التعرف التلقائي. اكتب في الحقل أو أعد التسجيل.",
+    noSpeechHeard: "لم يُفهم الكلام — اكتب الجملة ثم إرسال، أو سجّل مجدداً.",
     uploadingAudio: "يرفع الصوت…",
+    transcribingAudio: "يحوّل الصوت إلى نص…",
     typeWhatYouSaid: "الصوت جاهز — اكتب الجملة هنا ثم إرسال (يُترجم ويُرفق الصوت)",
     sendWithAudio: "إرسال مع الصوت",
     deleteLine: "حذف",
@@ -251,14 +253,14 @@ export const dictionaries: Record<Lang, Dictionary> = {
     micHintTeacher:
       "Speak Arabic or English — translations show for both people in both columns.",
     micHintBoth:
-      "On mobile: record audio, type the sentence, then Send (translation + audio). On desktop: hold to speak and auto-translate.",
+      "Record your voice — after you stop, speech becomes text then translates automatically (teacher and student).",
     paneLeftEmpty: "English speech appears here translated into Arabic",
     paneRightEmpty: "Arabic speech appears here translated into English",
     clearChat: "Clear chat",
     talk: "Talk",
     speakAr: "تحدث",
-    holdToRecord: "Hold to record — release to send and translate",
-    tapToRecord: "Tap to record — stop, type the sentence, then Send",
+    holdToRecord: "Hold to record — release to transcribe and translate",
+    tapToRecord: "Tap to record — tap again to stop, then transcribe and translate",
     tapToStop: "Recording… tap to stop",
     recording: "Recording… release to send",
     requestingMic: "Requesting microphone…",
@@ -268,9 +270,10 @@ export const dictionaries: Record<Lang, Dictionary> = {
       "Microphone is not active. Enable it in phone/browser settings, then retry.",
     micRetry: "Retry microphone",
     speechUnsupported:
-      "This browser cannot auto speech-to-text. Type in the box, or record audio then Send.",
-    noSpeechHeard: "Type the sentence in the box, then Send. You can attach audio with Talk.",
+      "Automatic recognition failed. Type in the box or record again.",
+    noSpeechHeard: "Speech not understood — type the sentence then Send, or record again.",
     uploadingAudio: "Uploading audio…",
+    transcribingAudio: "Converting speech to text…",
     typeWhatYouSaid: "Audio ready — type the sentence here, then Send (translates and attaches audio)",
     sendWithAudio: "Send with audio",
     deleteLine: "Delete",

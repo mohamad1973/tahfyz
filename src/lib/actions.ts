@@ -41,6 +41,7 @@ import {
   verifyPassword,
 } from "./utils";
 import { translateText, type ChatLang } from "./translate";
+import { transcribeAudioUrl } from "./groq-stt";
 import { buildCalendarWeek, buildOpenSlots } from "./slots";
 import {
   clearSession,
@@ -911,6 +912,48 @@ export async function sendChatMessageAction(input: {
   });
 
   return { ok: true as const, message };
+}
+
+export async function transcribeChatAudioAction(input: {
+  threadId: string;
+  audioUrl: string;
+  originalLang: ChatLang;
+}) {
+  const { user } = await requireSession(["student", "teacher"]);
+  const thread = await getChatThread(input.threadId);
+  if (!thread) return { ok: false as const, error: "Chat not found" };
+
+  const allowed =
+    (user.role === "student" && thread.studentId === user.id) ||
+    (user.role === "teacher" && thread.teacherId === user.teacherId);
+  if (!allowed) return { ok: false as const, error: "Not authorized" };
+
+  let audioUrl = input.audioUrl?.trim() || "";
+  if (!audioUrl) return { ok: false as const, error: "Missing audio" };
+
+  try {
+    const host = new URL(audioUrl).hostname;
+    const okHost =
+      host.endsWith(".public.blob.vercel-storage.com") ||
+      host === "public.blob.vercel-storage.com" ||
+      host.endsWith(".blob.vercel-storage.com");
+    if (!okHost) {
+      return { ok: false as const, error: "Invalid audio URL" };
+    }
+  } catch {
+    return { ok: false as const, error: "Invalid audio URL" };
+  }
+
+  let originalLang: ChatLang = input.originalLang;
+  if (originalLang !== "en" && originalLang !== "ar") {
+    originalLang = user.role === "teacher" ? "ar" : "en";
+  }
+
+  const result = await transcribeAudioUrl(audioUrl, originalLang);
+  if (!result.ok) {
+    return { ok: false as const, error: result.error };
+  }
+  return { ok: true as const, text: result.text };
 }
 
 export async function clearChatThreadAction(threadId: string) {
