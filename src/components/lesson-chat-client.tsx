@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { upload } from "@vercel/blob/client";
+import { Volume2 } from "lucide-react";
 import type { ChatMessage } from "@/lib/types";
 import type { ChatLang } from "@/lib/translate";
 import {
@@ -9,6 +10,7 @@ import {
   deleteChatMessageAction,
   fetchChatMessagesAction,
   sendChatMessageAction,
+  speakTranslatedMessageAction,
   transcribeChatAudioAction,
 } from "@/lib/actions";
 import { useI18n } from "@/lib/i18n/provider";
@@ -82,7 +84,7 @@ function messagesFingerprint(list: ChatMessage[]) {
   return list
     .map(
       (m) =>
-        `${m.id}|${m.audioUrl ?? ""}|${m.translatedText}|${m.originalText}|${m.originalLang}|${m.createdAt}`,
+        `${m.id}|${m.audioUrl ?? ""}|${m.translatedAudioUrl ?? ""}|${m.translatedText}|${m.originalText}|${m.originalLang}|${m.createdAt}`,
     )
     .join("\n");
 }
@@ -93,30 +95,79 @@ function MessageCard({
   translatedText,
   originalLang,
   audioUrl,
+  translatedAudioUrl,
   paneDir,
   cardClass,
   deleteLabel,
   saveLabel,
   savedLabel,
+  listenLabel,
+  listeningLabel,
+  listenErrorLabel,
   isSaved,
   onDelete,
   onSave,
+  onSpeak,
 }: {
   id: string;
   originalText: string;
   translatedText: string;
   originalLang: ChatLang;
   audioUrl?: string;
+  translatedAudioUrl?: string;
   paneDir: "rtl" | "ltr";
   cardClass: string;
   deleteLabel: string;
   saveLabel: string;
   savedLabel: string;
+  listenLabel: string;
+  listeningLabel: string;
+  listenErrorLabel: string;
   isSaved: boolean;
   onDelete: (messageId: string) => void;
   onSave: (messageId: string) => void;
+  onSpeak: (
+    messageId: string,
+  ) => Promise<{ ok: true; url: string } | { ok: false; error: string }>;
 }) {
   const originalDir = originalLang === "ar" ? "rtl" : "ltr";
+  const [ttsPending, setTtsPending] = useState(false);
+  const [ttsError, setTtsError] = useState(false);
+  const [ttsUrl, setTtsUrl] = useState(translatedAudioUrl);
+  const ttsRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    setTtsUrl(translatedAudioUrl);
+  }, [translatedAudioUrl]);
+
+  async function listen() {
+    setTtsError(false);
+    if (ttsUrl) {
+      const el = ttsRef.current;
+      if (el) {
+        try {
+          el.currentTime = 0;
+          await el.play();
+        } catch {
+          /* ignore autoplay */
+        }
+      }
+      return;
+    }
+    if (!translatedText.trim()) return;
+    setTtsPending(true);
+    const res = await onSpeak(id);
+    setTtsPending(false);
+    if (!res.ok) {
+      setTtsError(true);
+      return;
+    }
+    setTtsUrl(res.url);
+    window.setTimeout(() => {
+      void ttsRef.current?.play();
+    }, 50);
+  }
+
   return (
     <div className={cardClass}>
       <div className="flex items-start justify-between gap-2">
@@ -135,6 +186,21 @@ function MessageCard({
           >
             {translatedText}
           </p>
+          {translatedText.trim() ? (
+            <button
+              type="button"
+              onClick={() => void listen()}
+              disabled={ttsPending}
+              className="mt-1 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-olive px-3 py-2 text-xs font-semibold text-card hover:bg-olive-deep disabled:opacity-60"
+              title={listenLabel}
+            >
+              <Volume2 className="h-4 w-4 shrink-0" aria-hidden />
+              {ttsPending ? listeningLabel : listenLabel}
+            </button>
+          ) : null}
+          {ttsError ? (
+            <p className="text-[11px] text-danger">{listenErrorLabel}</p>
+          ) : null}
         </div>
         <div className="flex shrink-0 flex-col gap-1">
           <button
@@ -160,6 +226,16 @@ function MessageCard({
           </button>
         </div>
       </div>
+      {ttsUrl ? (
+        <audio
+          ref={ttsRef}
+          controls
+          preload="metadata"
+          playsInline
+          src={ttsUrl}
+          className="mt-2 w-full max-w-full"
+        />
+      ) : null}
       {audioUrl ? (
         <audio
           controls
@@ -265,6 +341,9 @@ function ChatPane({
   deleteLabel,
   saveLabel,
   savedLabel,
+  listenLabel,
+  listeningLabel,
+  listenErrorLabel,
   savedIds,
   onComposerChange,
   onSendText,
@@ -272,6 +351,7 @@ function ChatPane({
   onStopHold,
   onDeleteMessage,
   onSaveMessage,
+  onSpeakTranslation,
   onClearPendingAudio,
   onTouchUi,
 }: {
@@ -296,6 +376,9 @@ function ChatPane({
   deleteLabel: string;
   saveLabel: string;
   savedLabel: string;
+  listenLabel: string;
+  listeningLabel: string;
+  listenErrorLabel: string;
   savedIds: Set<string>;
   onComposerChange: (text: string) => void;
   onSendText: () => void;
@@ -303,6 +386,9 @@ function ChatPane({
   onStopHold: () => void;
   onDeleteMessage: (messageId: string) => void;
   onSaveMessage: (messageId: string) => void;
+  onSpeakTranslation: (
+    messageId: string,
+  ) => Promise<{ ok: true; url: string } | { ok: false; error: string }>;
   onClearPendingAudio: () => void;
   onTouchUi?: (touch: boolean) => void;
 }) {
@@ -344,14 +430,19 @@ function ChatPane({
             translatedText={m.translatedText}
             originalLang={m.originalLang}
             audioUrl={m.audioUrl}
+            translatedAudioUrl={m.translatedAudioUrl}
             paneDir={dir}
             cardClass={cardClass}
             deleteLabel={deleteLabel}
             saveLabel={saveLabel}
             savedLabel={savedLabel}
+            listenLabel={listenLabel}
+            listeningLabel={listeningLabel}
+            listenErrorLabel={listenErrorLabel}
             isSaved={savedIds.has(m.id)}
             onDelete={onDeleteMessage}
             onSave={onSaveMessage}
+            onSpeak={onSpeakTranslation}
           />
         ))}
         {items.length === 0 &&
@@ -996,6 +1087,18 @@ export function LessonChatClient({
     });
   }
 
+  async function onSpeakTranslation(messageId: string) {
+    const res = await speakTranslatedMessageAction({ messageId });
+    if (res.ok) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId ? { ...m, translatedAudioUrl: res.url } : m,
+        ),
+      );
+    }
+    return res;
+  }
+
   const holdHint = touchUi ? t.tapToRecord : t.holdToRecord;
   const recordingLabel =
     micStatus === "requesting"
@@ -1101,6 +1204,9 @@ export function LessonChatClient({
             deleteLabel={t.deleteLine}
             saveLabel={t.saveLine}
             savedLabel={t.savedLine}
+            listenLabel={t.listenTranslation}
+            listeningLabel={t.generatingSpeech}
+            listenErrorLabel={t.speechFailed}
             savedIds={savedIds}
             onComposerChange={(text) => onComposerEdit("en", text)}
             onSendText={() => sendComposer("en")}
@@ -1108,6 +1214,7 @@ export function LessonChatClient({
             onStopHold={requestStopHold}
             onDeleteMessage={onDeleteMessage}
             onSaveMessage={onSaveMessage}
+            onSpeakTranslation={onSpeakTranslation}
             onClearPendingAudio={() => setPendingAudio(null)}
             onTouchUi={setTouchUi}
           />
@@ -1143,6 +1250,9 @@ export function LessonChatClient({
             deleteLabel={t.deleteLine}
             saveLabel={t.saveLine}
             savedLabel={t.savedLine}
+            listenLabel={t.listenTranslation}
+            listeningLabel={t.generatingSpeech}
+            listenErrorLabel={t.speechFailed}
             savedIds={savedIds}
             onComposerChange={(text) => onComposerEdit("ar", text)}
             onSendText={() => sendComposer("ar")}
@@ -1150,6 +1260,7 @@ export function LessonChatClient({
             onStopHold={requestStopHold}
             onDeleteMessage={onDeleteMessage}
             onSaveMessage={onSaveMessage}
+            onSpeakTranslation={onSpeakTranslation}
             onClearPendingAudio={() => setPendingAudio(null)}
             onTouchUi={setTouchUi}
           />

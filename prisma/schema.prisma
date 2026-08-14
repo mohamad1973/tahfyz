@@ -157,10 +157,11 @@ model ChatMessage {
   senderId        String
   originalText    String     @db.Text
   originalLang    String
-  translatedText  String     @db.Text
-  translatedLang  String
-  audioUrl        String?    @db.Text
-  createdAt       DateTime   @default(now())
+  translatedText      String     @db.Text
+  translatedLang      String
+  audioUrl            String?    @db.Text
+  translatedAudioUrl  String?    @db.Text
+  createdAt           DateTime   @default(now())
   thread          ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
 
   @@index([threadId, createdAt])

@@ -76,6 +76,9 @@ export type Dictionary = {
   transcribingAudio: string;
   typeWhatYouSaid: string;
   sendWithAudio: string;
+  listenTranslation: string;
+  generatingSpeech: string;
+  speechFailed: string;
   deleteLine: string;
   resetPassword: string;
   email: string;
@@ -190,6 +193,9 @@ export const dictionaries: Record<Lang, Dictionary> = {
     transcribingAudio: "يحوّل الصوت إلى نص…",
     typeWhatYouSaid: "الصوت جاهز — اكتب الجملة هنا ثم إرسال (يُترجم ويُرفق الصوت)",
     sendWithAudio: "إرسال مع الصوت",
+    listenTranslation: "استمع للترجمة",
+    generatingSpeech: "جاري القراءة…",
+    speechFailed: "تعذّر قراءة الترجمة",
     deleteLine: "حذف",
     resetPassword: "إعادة تعيين كلمة المرور",
     email: "البريد الإلكتروني",
@@ -308,6 +314,9 @@ export const dictionaries: Record<Lang, Dictionary> = {
     transcribingAudio: "Converting speech to text…",
     typeWhatYouSaid: "Audio ready — type the sentence here, then Send (translates and attaches audio)",
     sendWithAudio: "Send with audio",
+    listenTranslation: "Listen to translation",
+    generatingSpeech: "Generating speech…",
+    speechFailed: "Could not read translation",
     deleteLine: "Delete",
     resetPassword: "Reset password",
     email: "Email",

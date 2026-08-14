@@ -215,6 +215,18 @@ export async function getUserByUsername(
   return row ? toUser(row) : undefined;
 }
 
+/** Login field may be username or full email. */
+export async function resolveLoginUser(
+  login: string,
+): Promise<User | undefined> {
+  const trimmed = login.trim().toLowerCase();
+  if (!trimmed) return undefined;
+  if (trimmed.includes("@")) {
+    return getUserByEmail(trimmed);
+  }
+  return getUserByUsername(trimmed);
+}
+
 export async function getUserById(id: string): Promise<User | undefined> {
   const row = await prisma.user.findUnique({ where: { id } });
   return row ? toUser(row) : undefined;
@@ -629,7 +641,22 @@ export async function getChatMessages(
     orderBy: { createdAt: "asc" },
     take: 200,
   });
-  return rows.map((row) => ({
+  return rows.map(toChatMessage);
+}
+
+function toChatMessage(row: {
+  id: string;
+  threadId: string;
+  senderId: string;
+  originalText: string;
+  originalLang: string;
+  translatedText: string;
+  translatedLang: string;
+  audioUrl: string | null;
+  translatedAudioUrl: string | null;
+  createdAt: Date;
+}): ChatMessage {
+  return {
     id: row.id,
     threadId: row.threadId,
     senderId: row.senderId,
@@ -638,8 +665,9 @@ export async function getChatMessages(
     translatedText: row.translatedText,
     translatedLang: row.translatedLang as "en" | "ar",
     audioUrl: row.audioUrl || undefined,
+    translatedAudioUrl: row.translatedAudioUrl || undefined,
     createdAt: row.createdAt.toISOString(),
-  }));
+  };
 }
 
 export async function addChatMessage(
@@ -655,6 +683,7 @@ export async function addChatMessage(
       translatedText: message.translatedText,
       translatedLang: message.translatedLang,
       audioUrl: message.audioUrl || null,
+      translatedAudioUrl: message.translatedAudioUrl || null,
       createdAt: new Date(message.createdAt),
     },
   });
@@ -662,17 +691,7 @@ export async function addChatMessage(
     where: { id: message.threadId },
     data: { updatedAt: new Date() },
   });
-  return {
-    id: row.id,
-    threadId: row.threadId,
-    senderId: row.senderId,
-    originalText: row.originalText,
-    originalLang: row.originalLang as "en" | "ar",
-    translatedText: row.translatedText,
-    translatedLang: row.translatedLang as "en" | "ar",
-    audioUrl: row.audioUrl || undefined,
-    createdAt: row.createdAt.toISOString(),
-  };
+  return toChatMessage(row);
 }
 
 export async function clearChatMessages(threadId: string): Promise<number> {
@@ -687,17 +706,18 @@ export async function clearChatMessages(threadId: string): Promise<number> {
 export async function getChatMessageById(id: string) {
   const row = await prisma.chatMessage.findUnique({ where: { id } });
   if (!row) return null;
-  return {
-    id: row.id,
-    threadId: row.threadId,
-    senderId: row.senderId,
-    originalText: row.originalText,
-    originalLang: row.originalLang as "en" | "ar",
-    translatedText: row.translatedText,
-    translatedLang: row.translatedLang as "en" | "ar",
-    audioUrl: row.audioUrl || undefined,
-    createdAt: row.createdAt.toISOString(),
-  };
+  return toChatMessage(row);
+}
+
+export async function setChatMessageTranslatedAudioUrl(
+  id: string,
+  translatedAudioUrl: string,
+): Promise<ChatMessage | null> {
+  const row = await prisma.chatMessage.update({
+    where: { id },
+    data: { translatedAudioUrl },
+  });
+  return toChatMessage(row);
 }
 
 export async function deleteChatMessage(id: string): Promise<boolean> {

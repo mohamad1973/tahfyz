@@ -20,10 +20,10 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Demo accounts
 
-| Role | Email | Password |
-|------|-------|----------|
-| Academy admin | admin@tahfyz.com | admin123 |
-| Teacher (×8) | ahmed@ / ibrahim@ / omar@ / yusuf@ / khaled@ / mostafa@ / abdelrahman@ / hassan@tahfyz.com | teacher123 |
+| Role | Username (or email) | Password |
+|------|---------------------|----------|
+| Academy admin | `admin` or admin@tahfyz.com | admin123 |
+| Teacher (×8) | `ahmed`, `ibrahim`, `omar`, `yusuf`, `khaled`, `mostafa`, `abdelrahman`, `hassan` (or same @tahfyz.com) | 123456 |
 
 Student accounts are created automatically when admin confirms payment on a guest booking.
 
@@ -56,6 +56,12 @@ DATABASE_URL="mysql://USER:PASSWORD@REMOTE_HOSTNAME:3306/DB_NAME"
 npm run prisma:generate
 npm run db:push
 npm run db:seed
+```
+
+To (re)create demo accounts **without wiping bookings**, use:
+
+```bash
+npm run db:ensure-demo
 ```
 
 Use the same `DATABASE_URL` in Vercel → Project → Settings → Environment Variables.

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useActionState, useState, useTransition } from "react";
 import {
   loginAction,
   registerParentAction,
@@ -11,9 +11,22 @@ import { useI18n } from "@/lib/i18n/provider";
 
 type Mode = "login" | "student" | "parent";
 
+async function loginFormAction(
+  _prev: { ok: false; error: string } | null,
+  formData: FormData,
+) {
+  const res = await loginAction(formData);
+  if (res && !res.ok) return res;
+  return null;
+}
+
 export default function LoginPage() {
   const { t } = useI18n();
   const [mode, setMode] = useState<Mode>("login");
+  const [loginState, loginForm, loginPending] = useActionState(
+    loginFormAction,
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
@@ -45,16 +58,7 @@ export default function LoginPage() {
         </div>
 
         {mode === "login" && (
-          <form
-            action={(fd) => {
-              setError(null);
-              start(async () => {
-                const res = await loginAction(fd);
-                if (res && !res.ok) setError(res.error);
-              });
-            }}
-            className="space-y-3"
-          >
+          <form action={loginForm} className="space-y-3">
             <label className="block text-sm">
               <span className="mb-1 block font-medium">{t.username}</span>
               <input
@@ -73,10 +77,12 @@ export default function LoginPage() {
                 className="w-full rounded-xl border border-line bg-bg px-3 py-2"
               />
             </label>
-            {error && <p className="text-sm text-danger">{error}</p>}
+            {loginState && !loginState.ok && (
+              <p className="text-sm text-danger">{loginState.error}</p>
+            )}
             <button
               type="submit"
-              disabled={pending}
+              disabled={loginPending}
               className="w-full rounded-xl bg-olive py-2.5 text-sm font-semibold text-card disabled:opacity-60"
             >
               {t.signIn}
@@ -87,7 +93,7 @@ export default function LoginPage() {
               </Link>
             </p>
             <p className="text-xs text-ink-muted leading-relaxed">
-              Demo: admin / admin123 · teachers: ahmed / 123456
+              Demo: admin / admin123 · teachers: ahmed / 123456 (or email @tahfyz.com)
             </p>
           </form>
         )}

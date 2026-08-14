@@ -21,11 +21,13 @@ import {
   getUserByEmail,
   getUserById,
   getUserByUsername,
+  resolveLoginUser,
   hasBookedLesson,
   linkGuestBookingsToStudent,
   listStudentTeacherPairs,
   listTeacherStudentPairs,
   replaceAvailability,
+  setChatMessageTranslatedAudioUrl,
   updateBooking,
   updateTeacher,
   updateUser,
@@ -42,6 +44,7 @@ import {
 } from "./utils";
 import { translateText, type ChatLang } from "./translate";
 import { transcribeAudioUrl } from "./groq-stt";
+import { generateTranslatedSpeechUrl } from "./groq-tts";
 import { buildCalendarWeek, buildOpenSlots } from "./slots";
 import {
   clearSession,
@@ -308,9 +311,9 @@ export async function cancelBooking(bookingId: string) {
 }
 
 export async function loginAction(formData: FormData) {
-  const username = normalizeUsername(String(formData.get("username") || ""));
+  const login = String(formData.get("username") || "").trim();
   const password = String(formData.get("password") || "");
-  const user = await getUserByUsername(username);
+  const user = await resolveLoginUser(login);
   if (!user || !(await verifyPassword(password, user.passwordHash))) {
     return { ok: false as const, error: "Invalid username or password" };
   }
@@ -912,6 +915,41 @@ export async function sendChatMessageAction(input: {
   });
 
   return { ok: true as const, message };
+}
+
+export async function speakTranslatedMessageAction(input: {
+  messageId: string;
+}) {
+  const { user } = await requireSession(["student", "teacher"]);
+  const message = await getChatMessageById(input.messageId);
+  if (!message) return { ok: false as const, error: "Message not found" };
+
+  const thread = await getChatThread(message.threadId);
+  if (!thread) return { ok: false as const, error: "Chat not found" };
+  const allowed =
+    (user.role === "student" && thread.studentId === user.id) ||
+    (user.role === "teacher" && thread.teacherId === user.teacherId);
+  if (!allowed) return { ok: false as const, error: "Not authorized" };
+
+  if (message.translatedAudioUrl) {
+    return { ok: true as const, url: message.translatedAudioUrl };
+  }
+
+  const speech = await generateTranslatedSpeechUrl({
+    threadId: message.threadId,
+    messageId: message.id,
+    text: message.translatedText,
+    language: message.translatedLang,
+  });
+  if (!speech.ok) return speech;
+
+  const latest = await getChatMessageById(message.id);
+  if (latest?.translatedAudioUrl) {
+    return { ok: true as const, url: latest.translatedAudioUrl };
+  }
+
+  const saved = await setChatMessageTranslatedAudioUrl(message.id, speech.url);
+  return { ok: true as const, url: saved?.translatedAudioUrl || speech.url };
 }
 
 export async function transcribeChatAudioAction(input: {
