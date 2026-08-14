@@ -213,7 +213,7 @@ export const dictionaries: Record<Lang, Dictionary> = {
     lessonSavedOk: "تم الحفظ على جهازك",
     lessonSavedNone: "لا رسائل جديدة للحفظ (أو لا رسائل في الشات)",
     lessonDownloadEmpty: "لا يوجد محفوظ محلياً اليوم — احفظ جملاً أو احفظ الكل أولاً",
-    lessonDownloadOk: "تم تنزيل ملف الدرس",
+    lessonDownloadOk: "تم تنزيل أرشيف الدرس (نص + صوت بأسماء إنجليزية)",
   },
   en: {
     teachers: "Teachers",
@@ -331,6 +331,6 @@ export const dictionaries: Record<Lang, Dictionary> = {
     lessonSavedOk: "Saved on your device",
     lessonSavedNone: "Nothing new to save (or chat is empty)",
     lessonDownloadEmpty: "Nothing saved locally today — save lines or Save all first",
-    lessonDownloadOk: "Lesson file downloaded",
+    lessonDownloadOk: "Lesson archive downloaded (text + audio with English names)",
   },
 };

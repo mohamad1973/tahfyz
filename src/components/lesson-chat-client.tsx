@@ -973,13 +973,16 @@ export function LessonChatClient({
   }
 
   function onDownloadLesson() {
-    const res = downloadLessonFile(threadId);
-    if (!res.ok) {
-      setLocalNote(t.lessonDownloadEmpty);
-      return;
-    }
-    setLocalNote(`${t.lessonDownloadOk}: ${res.filename}`);
-    setError(null);
+    setLocalNote(lang === "ar" ? "جاري تجهيز الملف…" : "Preparing file…");
+    void (async () => {
+      const res = await downloadLessonFile(threadId);
+      if (!res.ok) {
+        setLocalNote(t.lessonDownloadEmpty);
+        return;
+      }
+      setLocalNote(`${t.lessonDownloadOk}: ${res.filename}`);
+      setError(null);
+    })();
   }
 
   function onDeleteMessage(messageId: string) {

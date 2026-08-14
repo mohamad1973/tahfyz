@@ -1,3 +1,4 @@
+import JSZip from "jszip";
 import type { ChatMessage } from "@/lib/types";
 
 export type LocalLessonLine = {
@@ -107,44 +108,65 @@ export function savedLessonIds(
   return new Set(readLines(threadId, date).map((l) => l.id));
 }
 
-function formatLessonText(lines: LocalLessonLine[], date: string): string {
-  const header = [
-    `Tahfyz lesson — ${date}`,
-    `Lines: ${lines.length}`,
-    "",
-  ].join("\n");
-  const body = lines
-    .map((l, i) => {
-      const when = new Date(l.createdAt).toLocaleString();
-      const from = l.originalLang === "ar" ? "AR" : "EN";
-      const to = l.translatedLang === "ar" ? "AR" : "EN";
-      return [
-        `--- ${i + 1} · ${when} · ${from}→${to} ---`,
-        l.originalText.trim() || "(empty)",
-        "",
-        l.translatedText.trim() || "(empty)",
-        l.audioUrl ? `Audio: ${l.audioUrl}` : "",
-        "",
-      ]
-        .filter((x, idx, arr) => !(x === "" && arr[idx - 1] === ""))
-        .join("\n");
-    })
-    .join("\n");
-  return `${header}${body}`.trim() + "\n";
+/** First 10 English letters from the English side of the line. */
+export function englishSlug10(line: LocalLessonLine, index: number): string {
+  const english =
+    line.originalLang === "en" ? line.originalText : line.translatedText;
+  const letters = (english || "")
+    .toLowerCase()
+    .replace(/[^a-z]/g, "")
+    .slice(0, 10);
+  if (letters.length >= 3) return letters;
+  if (letters.length > 0) return `${letters}${index + 1}`;
+  return `line${index + 1}`;
 }
 
-/** Download local notebook as tahfyz-lesson-YYYY-MM-DD.txt */
-export function downloadLessonFile(
-  threadId: string,
-  date = lessonDateString(),
-): { ok: true; count: number; filename: string } | { ok: false; error: string } {
-  const lines = readLines(threadId, date);
-  if (!lines.length) {
-    return { ok: false, error: "empty" };
+function uniqueSlug(base: string, used: Set<string>): string {
+  let slug = base;
+  let n = 2;
+  while (used.has(slug)) {
+    slug = `${base}${n}`;
+    n += 1;
   }
-  const filename = `tahfyz-lesson-${date}.txt`;
-  const text = formatLessonText(lines, date);
-  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  used.add(slug);
+  return slug;
+}
+
+function extFromUrl(url: string): string {
+  try {
+    const path = new URL(url).pathname;
+    const m = path.match(/\.([a-z0-9]+)$/i);
+    if (m) return m[1].toLowerCase();
+  } catch {
+    /* ignore */
+  }
+  return "webm";
+}
+
+function lineTxtContent(line: LocalLessonLine): string {
+  const when = new Date(line.createdAt).toLocaleString();
+  const from = line.originalLang === "ar" ? "AR" : "EN";
+  const to = line.translatedLang === "ar" ? "AR" : "EN";
+  return [
+    `Tahfyz · ${when} · ${from}->${to}`,
+    "",
+    line.originalText.trim() || "(empty)",
+    "",
+    line.translatedText.trim() || "(empty)",
+    "",
+  ].join("\n");
+}
+
+function utf8BomBlob(text: string): Blob {
+  const bom = new Uint8Array([0xef, 0xbb, 0xbf]);
+  const body = new TextEncoder().encode(text);
+  const merged = new Uint8Array(bom.length + body.length);
+  merged.set(bom, 0);
+  merged.set(body, bom.length);
+  return new Blob([merged], { type: "text/plain;charset=utf-8" });
+}
+
+function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -153,6 +175,53 @@ export function downloadLessonFile(
   document.body.appendChild(a);
   a.click();
   a.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+  window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/**
+ * Download lesson as ZIP: each line → {slug}.txt + optional {slug}.{ext} audio.
+ * Slug = first 10 English letters from the English text.
+ */
+export async function downloadLessonFile(
+  threadId: string,
+  date = lessonDateString(),
+): Promise<
+  | { ok: true; count: number; filename: string }
+  | { ok: false; error: string }
+> {
+  const lines = readLines(threadId, date);
+  if (!lines.length) {
+    return { ok: false, error: "empty" };
+  }
+
+  const zip = new JSZip();
+  const used = new Set<string>();
+  const folder = zip.folder(`tahfyz-lesson-${date}`);
+  if (!folder) {
+    return { ok: false, error: "zip" };
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const slug = uniqueSlug(englishSlug10(line, i), used);
+    folder.file(`${slug}.txt`, utf8BomBlob(lineTxtContent(line)));
+
+    if (line.audioUrl) {
+      try {
+        const res = await fetch(line.audioUrl);
+        if (res.ok) {
+          const buf = await res.arrayBuffer();
+          const ext = extFromUrl(line.audioUrl);
+          folder.file(`${slug}.${ext}`, buf);
+        }
+      } catch {
+        /* skip failed audio fetch */
+      }
+    }
+  }
+
+  const zipBlob = await zip.generateAsync({ type: "blob" });
+  const filename = `tahfyz-lesson-${date}.zip`;
+  triggerDownload(zipBlob, filename);
   return { ok: true, count: lines.length, filename };
 }
