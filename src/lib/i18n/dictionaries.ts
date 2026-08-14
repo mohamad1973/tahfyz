@@ -71,7 +71,6 @@ export type Dictionary = {
   micDeadHelp: string;
   micRetry: string;
   uploadingAudio: string;
-  transcribingAudio: string;
   typeWhatYouSaid: string;
   sendWithAudio: string;
   deleteLine: string;
@@ -150,14 +149,14 @@ export const dictionaries: Record<Lang, Dictionary> = {
     micHintTeacher:
       "تكلم عربي أو إنجليزي — الترجمة تظهر للطرفين في العمودين.",
     micHintBoth:
-      "اكتب وأرسل للترجمة. الكمبيوتر: اضغط مطوّلاً على Talk/تحدث. الموبايل: اضغط مرة للبدء ومرة للإيقاف.",
+      "اكتب وأرسل للترجمة (موبايل وكمبيوتر). الصوت اختياري: سجّل ثم اكتب النص إن لم يظهر تلقائياً.",
     paneLeftEmpty: "الكلام الإنجليزي يظهر هنا مترجماً للعربية",
     paneRightEmpty: "الكلام العربي يظهر هنا مترجماً للإنجليزية",
     clearChat: "مسح المحادثة",
     talk: "Talk",
     speakAr: "تحدث",
     holdToRecord: "اضغط باستمرار للتسجيل — ارفع للإرسال والترجمة",
-    tapToRecord: "اضغط للبدء — اضغط مجدداً للإيقاف والإرسال",
+    tapToRecord: "اضغط للبدء — اضغط مجدداً للإيقاف ثم اكتب النص إن لزم",
     tapToStop: "يسجّل… اضغط للإيقاف",
     recording: "يسجّل… ارفع للإرسال",
     requestingMic: "جاري طلب الميكروفون…",
@@ -167,8 +166,7 @@ export const dictionaries: Record<Lang, Dictionary> = {
       "الميكروفون غير فعّال. تأكد أنه مفتوح في إعدادات الهاتف والمتصفح ثم أعد المحاولة.",
     micRetry: "إعادة محاولة الميكروفون",
     uploadingAudio: "يرفع الصوت…",
-    transcribingAudio: "يحوّل الصوت إلى نص…",
-    typeWhatYouSaid: "اكتب ما قلته ثم أرسل مع الصوت",
+    typeWhatYouSaid: "الصوت جاهز — اكتب ما قلته هنا ثم إرسال (يُترجم فوراً)",
     sendWithAudio: "إرسال مع الصوت",
     deleteLine: "حذف",
     resetPassword: "إعادة تعيين كلمة المرور",
@@ -248,14 +246,14 @@ export const dictionaries: Record<Lang, Dictionary> = {
     micHintTeacher:
       "Speak Arabic or English — translations show for both people in both columns.",
     micHintBoth:
-      "Type and Send to translate. Desktop: hold Talk/تحدث. Mobile: tap to start, tap again to stop.",
+      "Type and Send to translate (phone and desktop). Voice is optional: record, then type the text if it does not appear automatically.",
     paneLeftEmpty: "English speech appears here translated into Arabic",
     paneRightEmpty: "Arabic speech appears here translated into English",
     clearChat: "Clear chat",
     talk: "Talk",
     speakAr: "تحدث",
     holdToRecord: "Hold to record — release to send and translate",
-    tapToRecord: "Tap to start — tap again to stop and send",
+    tapToRecord: "Tap to start — tap again to stop, then type text if needed",
     tapToStop: "Recording… tap to stop",
     recording: "Recording… release to send",
     requestingMic: "Requesting microphone…",
@@ -265,8 +263,7 @@ export const dictionaries: Record<Lang, Dictionary> = {
       "Microphone is not active. Enable it in phone/browser settings, then retry.",
     micRetry: "Retry microphone",
     uploadingAudio: "Uploading audio…",
-    transcribingAudio: "Converting speech to text…",
-    typeWhatYouSaid: "Type what you said, then send with audio",
+    typeWhatYouSaid: "Audio ready — type what you said here, then Send (translates instantly)",
     sendWithAudio: "Send with audio",
     deleteLine: "Delete",
     resetPassword: "Reset password",

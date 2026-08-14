@@ -277,6 +277,16 @@ function ChatPane({
   onTouchUi?: (touch: boolean) => void;
 }) {
   const inputDir = holdSide === "ar" ? "rtl" : "ltr";
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (!hasPendingAudio) return;
+    const el = composerRef.current;
+    if (!el) return;
+    el.focus();
+    el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [hasPendingAudio]);
+
   return (
     <section className="flex min-h-0 flex-1 flex-col" dir={dir}>
       <div className="flex-1 space-y-2 overflow-y-auto px-2 py-2 sm:px-3 sm:py-3">
@@ -331,11 +341,16 @@ function ChatPane({
         ) : null}
         <div className="flex gap-1.5 sm:gap-2">
           <textarea
+            ref={composerRef}
             value={composerText}
             onChange={(e) => onComposerChange(e.target.value)}
-            rows={1}
+            rows={2}
             placeholder={typePlaceholder}
-            className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-2 py-1.5 text-xs sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm"
+            className={`min-w-0 flex-1 rounded-lg border bg-bg px-2 py-1.5 text-xs sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm ${
+              hasPendingAudio
+                ? "border-olive ring-2 ring-olive/30"
+                : "border-line"
+            }`}
             dir={inputDir}
           />
           <button
@@ -519,22 +534,28 @@ export function LessonChatClient({
     originalLang: ChatLang,
     audioBlob: Blob | null,
   ) {
-    const initialText = text.trim();
-    if (!initialText && !(audioBlob && audioBlob.size >= 500)) {
-      setError(
-        lang === "ar"
-          ? "اكتب نصاً في الحقل أو سجّل صوتاً أطول"
-          : "Type text in the box or record longer audio",
-      );
+    const payload = text.trim();
+    if (!payload) {
+      if (audioBlob && audioBlob.size >= 500) {
+        setPendingAudio({ originalLang, blob: audioBlob });
+        setError(
+          lang === "ar"
+            ? "الصوت جاهز — اكتب ما قلته في الحقل ثم اضغط إرسال ليُترجم"
+            : "Audio ready — type what you said, then press Send to translate",
+        );
+      } else {
+        setError(
+          lang === "ar"
+            ? "اكتب نصاً في الحقل أو سجّل صوتاً أطول"
+            : "Type text in the box or record longer audio",
+        );
+      }
       return;
     }
 
-    const displayText =
-      initialText ||
-      (lang === "ar" ? t.transcribingAudio : t.transcribingAudio);
     const tempId = `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     setPending((prev) => [
-      { id: tempId, originalLang, text: displayText },
+      { id: tempId, originalLang, text: payload },
       ...prev,
     ]);
     setInterim("");
@@ -544,19 +565,15 @@ export function LessonChatClient({
     sendQueueRef.current = sendQueueRef.current.then(async () => {
       setError(null);
       let audioUrl: string | undefined;
-      let payload = initialText;
-
       if (audioBlob && audioBlob.size >= 500) {
         try {
           audioUrl = await uploadAudioBlob(audioBlob);
         } catch (e) {
-          setPending((prev) => prev.filter((p) => p.id !== tempId));
           setError(
             lang === "ar"
               ? `فشل رفع الصوت: ${e instanceof Error ? e.message : "خطأ"}`
               : `Audio upload failed: ${e instanceof Error ? e.message : "error"}`,
           );
-          return;
         }
       } else if (audioBlob && audioBlob.size > 0 && audioBlob.size < 500) {
         setError(
@@ -565,61 +582,6 @@ export function LessonChatClient({
             : "Recording too short — record longer while speaking",
         );
       }
-
-      // Mobile / no Web Speech text: transcribe on server via Whisper
-      if (!payload && audioUrl) {
-        try {
-          const tr = await fetch("/api/chat/transcribe", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              audioUrl,
-              language: originalLang,
-            }),
-          });
-          const data = (await tr.json()) as { text?: string; error?: string };
-          if (!tr.ok || !data.text?.trim()) {
-            setPending((prev) => prev.filter((p) => p.id !== tempId));
-            setPendingAudio({ originalLang, blob: audioBlob! });
-            setError(
-              data.error ||
-                (lang === "ar"
-                  ? "تعذر تحويل الصوت لنص — اكتب في الحقل ثم أرسل"
-                  : "Could not transcribe audio — type in the box then send"),
-            );
-            return;
-          }
-          payload = data.text.trim();
-          setPending((prev) =>
-            prev.map((p) =>
-              p.id === tempId ? { ...p, text: payload } : p,
-            ),
-          );
-        } catch {
-          setPending((prev) => prev.filter((p) => p.id !== tempId));
-          if (audioBlob) setPendingAudio({ originalLang, blob: audioBlob });
-          setError(
-            lang === "ar"
-              ? "تعذر تحويل الصوت لنص — اكتب في الحقل ثم أرسل"
-              : "Could not transcribe audio — type in the box then send",
-          );
-          return;
-        }
-      }
-
-      if (!payload) {
-        setPending((prev) => prev.filter((p) => p.id !== tempId));
-        if (audioBlob && audioBlob.size >= 500) {
-          setPendingAudio({ originalLang, blob: audioBlob });
-          setError(
-            lang === "ar"
-              ? "الصوت جاهز — اكتب النص في الحقل ثم اضغط إرسال"
-              : "Audio ready — type text in the box, then press Send",
-          );
-        }
-        return;
-      }
-
       const res = await sendChatMessageAction({
         threadId,
         text: payload,
