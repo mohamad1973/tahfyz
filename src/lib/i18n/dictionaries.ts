@@ -145,7 +145,7 @@ export const dictionaries: Record<Lang, Dictionary> = {
     micHintTeacher:
       "تكلم عربي أو إنجليزي — الترجمة تظهر للطرفين في العمودين.",
     micHintBoth:
-      "على الموبايل: اضغط Talk أو تحدث للبدء ثم اضغط مجدداً للإيقاف. على الكمبيوتر: اضغط مطوّلاً ثم ارفع.",
+      "اكتب في الحقل واضغط إرسال للترجمة. على الموبايل: اضغط تحدث للتسجيل ثم أوقف، أو اكتب مباشرة.",
     paneLeftEmpty: "الكلام الإنجليزي يظهر هنا مترجماً للعربية",
     paneRightEmpty: "الكلام العربي يظهر هنا مترجماً للإنجليزية",
     clearChat: "مسح المحادثة",
@@ -236,7 +236,7 @@ export const dictionaries: Record<Lang, Dictionary> = {
     micHintTeacher:
       "Speak Arabic or English — translations show for both people in both columns.",
     micHintBoth:
-      "On mobile: tap Talk or تحدث to start, tap again to stop. On desktop: hold, then release.",
+      "Type in the box and press Send to translate. On mobile: tap Talk to record then stop, or just type.",
     paneLeftEmpty: "English speech appears here translated into Arabic",
     paneRightEmpty: "Arabic speech appears here translated into English",
     clearChat: "Clear chat",

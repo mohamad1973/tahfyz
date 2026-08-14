@@ -39,10 +39,9 @@ type PendingBubble = {
   text: string;
 };
 
-type AudioDraft = {
+type PendingAudio = {
   originalLang: ChatLang;
-  audioBlob: Blob;
-  text: string;
+  blob: Blob;
 };
 
 function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
@@ -65,7 +64,13 @@ function pickAudioMime(): string | undefined {
   if (typeof MediaRecorder === "undefined") return undefined;
   const mobile = isMobileCapture();
   const candidates = mobile
-    ? ["audio/mp4", "audio/aac", "audio/webm;codecs=opus", "audio/webm", "audio/ogg"]
+    ? [
+        "audio/mp4",
+        "audio/aac",
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg",
+      ]
     : ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"];
   return candidates.find((t) => MediaRecorder.isTypeSupported(t));
 }
@@ -166,7 +171,7 @@ function HoldButton({
   return (
     <button
       type="button"
-      className={`w-full select-none rounded-xl px-4 py-4 text-base font-semibold touch-manipulation ${
+      className={`w-full select-none rounded-xl px-4 py-3 text-base font-semibold touch-manipulation ${
         active
           ? "bg-danger text-card"
           : "bg-olive text-card hover:bg-olive-deep"
@@ -210,7 +215,8 @@ function ChatPane({
   pendingItems,
   showInterim,
   interim,
-  draft,
+  composerText,
+  hasPendingAudio,
   dir,
   cardClass,
   empty,
@@ -220,22 +226,24 @@ function ChatPane({
   holdHint,
   recordingLabel,
   uploadingAudio,
-  typeWhatYouSaid,
-  sendWithAudio,
+  typePlaceholder,
+  sendLabel,
+  audioReadyHint,
   deleteLabel,
   toggleMode,
+  onComposerChange,
+  onSendText,
   onStartHold,
   onStopHold,
   onDeleteMessage,
-  onDraftTextChange,
-  onSendDraft,
-  onCancelDraft,
+  onClearPendingAudio,
 }: {
   items: ChatMessage[];
   pendingItems: PendingBubble[];
   showInterim: boolean;
   interim: string;
-  draft: AudioDraft | null;
+  composerText: string;
+  hasPendingAudio: boolean;
   dir: "rtl" | "ltr";
   cardClass: string;
   empty: string;
@@ -245,18 +253,19 @@ function ChatPane({
   holdHint: string;
   recordingLabel: string;
   uploadingAudio: string;
-  typeWhatYouSaid: string;
-  sendWithAudio: string;
+  typePlaceholder: string;
+  sendLabel: string;
+  audioReadyHint: string;
   deleteLabel: string;
   toggleMode: boolean;
+  onComposerChange: (text: string) => void;
+  onSendText: () => void;
   onStartHold: (side: ChatLang) => void;
   onStopHold: () => void;
   onDeleteMessage: (messageId: string) => void;
-  onDraftTextChange: (text: string) => void;
-  onSendDraft: () => void;
-  onCancelDraft: () => void;
+  onClearPendingAudio: () => void;
 }) {
-  const showDraft = draft?.originalLang === holdSide;
+  const inputDir = holdSide === "ar" ? "rtl" : "ltr";
   return (
     <section className="flex min-h-[42vh] flex-1 flex-col md:min-h-0" dir={dir}>
       <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
@@ -292,44 +301,42 @@ function ChatPane({
         ))}
         {items.length === 0 &&
           pendingItems.length === 0 &&
-          !(showInterim && interim) &&
-          !showDraft && (
+          !(showInterim && interim) && (
             <p className="text-center text-xs text-ink-muted">{empty}</p>
           )}
       </div>
-      <div className="border-t border-line p-3">
-        {showDraft ? (
-          <div className="mb-3 space-y-2">
-            <p className="text-center text-[11px] text-ink-muted">
-              {typeWhatYouSaid}
-            </p>
-            <textarea
-              value={draft.text}
-              onChange={(e) => onDraftTextChange(e.target.value)}
-              rows={2}
-              className="w-full rounded-xl border border-line bg-bg px-3 py-2 text-sm"
-              dir={holdSide === "ar" ? "rtl" : "ltr"}
-            />
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={onSendDraft}
-                disabled={!draft.text.trim()}
-                className="flex-1 rounded-xl bg-olive px-3 py-2 text-sm font-semibold text-card disabled:opacity-50"
-              >
-                {sendWithAudio}
-              </button>
-              <button
-                type="button"
-                onClick={onCancelDraft}
-                className="rounded-xl border border-line px-3 py-2 text-sm"
-              >
-                ×
-              </button>
-            </div>
-          </div>
+      <div className="space-y-2 border-t border-line p-3">
+        {hasPendingAudio ? (
+          <p className="text-center text-[11px] text-olive">
+            {audioReadyHint}{" "}
+            <button
+              type="button"
+              className="underline"
+              onClick={onClearPendingAudio}
+            >
+              ×
+            </button>
+          </p>
         ) : null}
-        <p className="mb-2 text-center text-[11px] text-ink-muted">{holdHint}</p>
+        <div className="flex gap-2">
+          <textarea
+            value={composerText}
+            onChange={(e) => onComposerChange(e.target.value)}
+            rows={2}
+            placeholder={typePlaceholder}
+            className="min-w-0 flex-1 rounded-xl border border-line bg-bg px-3 py-2 text-sm"
+            dir={inputDir}
+          />
+          <button
+            type="button"
+            onClick={onSendText}
+            disabled={!composerText.trim()}
+            className="shrink-0 self-stretch rounded-xl bg-olive px-3 py-2 text-sm font-semibold text-card disabled:opacity-50"
+          >
+            {sendLabel}
+          </button>
+        </div>
+        <p className="text-center text-[11px] text-ink-muted">{holdHint}</p>
         <HoldButton
           side={holdSide}
           label={holdLabel}
@@ -362,7 +369,9 @@ export function LessonChatClient({
   const [, start] = useTransition();
   const [clearing, setClearing] = useState(false);
   const [toggleMode, setToggleMode] = useState(false);
-  const [draft, setDraft] = useState<AudioDraft | null>(null);
+  const [composerEn, setComposerEn] = useState("");
+  const [composerAr, setComposerAr] = useState("");
+  const [pendingAudio, setPendingAudio] = useState<PendingAudio | null>(null);
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -371,6 +380,8 @@ export function LessonChatClient({
   const holdingRef = useRef<ChatLang | null>(null);
   const finalsRef = useRef("");
   const interimRef = useRef("");
+  const composerEnRef = useRef("");
+  const composerArRef = useRef("");
   const sendQueueRef = useRef<Promise<void>>(Promise.resolve());
   const stoppingRef = useRef(false);
   const startingRef = useRef(false);
@@ -413,6 +424,20 @@ export function LessonChatClient({
     }
   }
 
+  function getComposer(side: ChatLang) {
+    return side === "en" ? composerEnRef.current : composerArRef.current;
+  }
+
+  function setComposer(side: ChatLang, text: string) {
+    if (side === "en") {
+      composerEnRef.current = text;
+      setComposerEn(text);
+    } else {
+      composerArRef.current = text;
+      setComposerAr(text);
+    }
+  }
+
   async function uploadAudioBlob(blob: Blob): Promise<string> {
     if (!blob.size || blob.size < 500) {
       throw new Error(
@@ -428,33 +453,20 @@ export function LessonChatClient({
         ? "ogg"
         : "webm";
     const pathname = `chat/${threadId}/rec-${Date.now()}.${ext}`;
-    const file = new File([blob], `rec.${ext}`, { type: fullType });
-    try {
-      const result = await upload(pathname, file, {
-        access: "public",
-        handleUploadUrl: "/api/blob/upload",
-        contentType: fullType,
-        clientPayload: JSON.stringify({
-          kind: "chat-audio",
-          threadId,
-          title: "chat-recording",
-        }),
-      });
-      return result.url;
-    } catch {
-      const file2 = new File([blob], `rec.${ext}`, { type: baseType });
-      const result = await upload(pathname, file2, {
-        access: "public",
-        handleUploadUrl: "/api/blob/upload",
-        contentType: baseType,
-        clientPayload: JSON.stringify({
-          kind: "chat-audio",
-          threadId,
-          title: "chat-recording",
-        }),
-      });
-      return result.url;
-    }
+    // Prefer base MIME for storage Content-Type (browsers play better)
+    const uploadType = baseType;
+    const file = new File([blob], `rec.${ext}`, { type: uploadType });
+    const result = await upload(pathname, file, {
+      access: "public",
+      handleUploadUrl: "/api/blob/upload",
+      contentType: uploadType,
+      clientPayload: JSON.stringify({
+        kind: "chat-audio",
+        threadId,
+        title: "chat-recording",
+      }),
+    });
+    return result.url;
   }
 
   function sendFinal(
@@ -465,30 +477,30 @@ export function LessonChatClient({
     const payload = text.trim();
     if (!payload) {
       if (audioBlob && audioBlob.size >= 500) {
-        setDraft({ originalLang, audioBlob, text: "" });
+        setPendingAudio({ originalLang, blob: audioBlob });
         setError(
           lang === "ar"
-            ? "الصوت جاهز — اكتب ما قلته ثم أرسل"
-            : "Audio ready — type what you said, then send",
+            ? "الصوت جاهز — اكتب النص في الحقل ثم اضغط إرسال"
+            : "Audio ready — type text in the box, then press Send",
         );
-      } else if (!audioBlob?.size) {
+      } else {
         setError(
           lang === "ar"
-            ? "لم يُلتقط نص ولا صوت"
-            : "No speech or audio captured",
+            ? "اكتب نصاً في الحقل أو سجّل صوتاً أطول"
+            : "Type text in the box or record longer audio",
         );
       }
       return;
     }
 
-    const displayText = payload;
     const tempId = `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     setPending((prev) => [
-      { id: tempId, originalLang, text: displayText },
+      { id: tempId, originalLang, text: payload },
       ...prev,
     ]);
     setInterim("");
-    setDraft(null);
+    setComposer(originalLang, "");
+    setPendingAudio(null);
 
     sendQueueRef.current = sendQueueRef.current.then(async () => {
       setError(null);
@@ -519,49 +531,61 @@ export function LessonChatClient({
       setPending((prev) => prev.filter((p) => p.id !== tempId));
       if (!res.ok) {
         setError(res.error);
+        setComposer(originalLang, payload);
         return;
-      }
-      if (!audioUrl) {
-        setError(
-          lang === "ar"
-            ? "تم حفظ الترجمة لكن الصوت لم يُرفع بشكل صحيح — أعد التسجيل"
-            : "Translation saved but audio failed — please record again",
-        );
       }
       appendMessage(res.message);
     });
   }
 
+  function sendComposer(side: ChatLang) {
+    const text = getComposer(side);
+    const audio =
+      pendingAudio && pendingAudio.originalLang === side
+        ? pendingAudio.blob
+        : null;
+    sendFinal(text, side, audio);
+  }
+
   function stopRecorderToBlob(recorder: MediaRecorder): Promise<Blob | null> {
     return new Promise((resolve) => {
-      const chunks: Blob[] = [];
       const mime =
         recorder.mimeType ||
         recorderMimeRef.current ||
         "audio/webm;codecs=opus";
 
+      // Keep existing handler that fills audioChunksRef — do not replace it
+      const prevHandler = recorder.ondataavailable;
       recorder.ondataavailable = (ev) => {
-        if (ev.data && ev.data.size > 0) chunks.push(ev.data);
+        if (typeof prevHandler === "function") {
+          prevHandler.call(recorder, ev);
+        } else if (ev.data && ev.data.size > 0) {
+          audioChunksRef.current.push(ev.data);
+        }
       };
-      recorder.onstop = () => {
+
+      const finish = () => {
+        const chunks = audioChunksRef.current.slice();
+        audioChunksRef.current = [];
+        if (!chunks.length) {
+          resolve(null);
+          return;
+        }
         const blob = new Blob(chunks, { type: mime });
         resolve(blob.size > 0 ? blob : null);
       };
-      recorder.onerror = () => resolve(null);
+
+      recorder.onstop = () => finish();
+      recorder.onerror = () => finish();
 
       try {
         if (recorder.state === "recording") {
-          try {
-            recorder.requestData?.();
-          } catch {
-            /* ignore */
-          }
           recorder.stop();
         } else {
-          resolve(null);
+          finish();
         }
       } catch {
-        resolve(null);
+        finish();
       }
     });
   }
@@ -593,10 +617,16 @@ export function LessonChatClient({
       /* ignore */
     }
 
-    const text = `${finalsRef.current} ${interimRef.current}`.trim();
+    const speechText = `${finalsRef.current} ${interimRef.current}`.trim();
     finalsRef.current = "";
     interimRef.current = "";
     setInterim("");
+
+    const typed = getComposer(side).trim();
+    if (speechText && !typed) {
+      setComposer(side, speechText);
+    }
+    const textForSend = (getComposer(side) || speechText).trim();
 
     const recorder = mediaRecorderRef.current;
     mediaRecorderRef.current = null;
@@ -604,7 +634,7 @@ export function LessonChatClient({
     const finish = (audioBlob: Blob | null) => {
       stopMediaTracks();
       stoppingRef.current = false;
-      sendFinal(text, side, audioBlob);
+      sendFinal(textForSend, side, audioBlob);
     };
 
     if (recorder && recorder.state !== "inactive") {
@@ -613,15 +643,13 @@ export function LessonChatClient({
           if (blob && blob.size < 500) {
             setError(
               lang === "ar"
-                ? "الصوت المسجّل ضعيف أو صامت — أعد المحاولة وتكلم أثناء التسجيل"
-                : "Recorded audio is weak/silent — try again and speak while recording",
+                ? "الصوت المسجّل ضعيف — يمكنك إرسال النص من الحقل أو إعادة التسجيل"
+                : "Audio is weak — send text from the box or record again",
             );
-            finish(blob.size > 0 ? blob : null);
-            return;
           }
           finish(blob);
         });
-      }, 80);
+      }, 120);
     } else {
       audioChunksRef.current = [];
       finish(null);
@@ -676,14 +704,30 @@ export function LessonChatClient({
     try {
       rec.start();
     } catch {
-      /* ignore — recording can still succeed */
+      /* ignore */
     }
   }
 
   async function startHold(side: ChatLang) {
     if (holdingRef.current || stoppingRef.current || startingRef.current) return;
     setError(null);
-    setDraft(null);
+
+    if (typeof MediaRecorder === "undefined") {
+      setError(
+        lang === "ar"
+          ? "هذا المتصفح لا يدعم تسجيل الصوت — اكتب في الحقل واضغط إرسال"
+          : "This browser cannot record audio — type in the box and press Send",
+      );
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError(
+        lang === "ar"
+          ? "الميكروفون غير متاح — اكتب في الحقل واضغط إرسال"
+          : "Microphone unavailable — type in the box and press Send",
+      );
+      return;
+    }
 
     finalsRef.current = "";
     interimRef.current = "";
@@ -713,19 +757,25 @@ export function LessonChatClient({
       mediaStreamRef.current = stream;
       const mime = pickAudioMime();
       recorderMimeRef.current = mime || "audio/mp4";
-      const recorder = mime
-        ? new MediaRecorder(stream, { mimeType: mime })
-        : new MediaRecorder(stream);
+      let recorder: MediaRecorder;
+      try {
+        recorder = mime
+          ? new MediaRecorder(stream, { mimeType: mime })
+          : new MediaRecorder(stream);
+      } catch {
+        recorder = new MediaRecorder(stream);
+      }
       recorder.ondataavailable = (ev) => {
-        if (ev.data.size > 0) audioChunksRef.current.push(ev.data);
+        if (ev.data && ev.data.size > 0) audioChunksRef.current.push(ev.data);
       };
       mediaRecorderRef.current = recorder;
-      recorder.start(250);
+      // No timeslice — full blob on stop (avoids dropped / truncated audio)
+      recorder.start();
     } catch {
       setError(
         lang === "ar"
-          ? "اسمح بالميكروفون لتسجيل الصوت"
-          : "Allow microphone to record audio",
+          ? "اسمح بالميكروفون، أو اكتب في الحقل واضغط إرسال"
+          : "Allow the microphone, or type in the box and press Send",
       );
       holdingRef.current = null;
       setHolding(null);
@@ -741,7 +791,6 @@ export function LessonChatClient({
       return;
     }
 
-    // Desktop: STT after recorder owns the mic. Mobile: skip concurrent STT.
     if (useSpeechDuringRecordRef.current) {
       const Ctor = getSpeechRecognition();
       if (Ctor) {
@@ -806,7 +855,9 @@ export function LessonChatClient({
       setMessages([]);
       setPending([]);
       setInterim("");
-      setDraft(null);
+      setPendingAudio(null);
+      setComposer("en", "");
+      setComposer("ar", "");
       setError(null);
     });
   }
@@ -824,6 +875,7 @@ export function LessonChatClient({
 
   const holdHint = toggleMode ? t.tapToRecord : t.holdToRecord;
   const recordingLabel = toggleMode ? t.tapToStop : t.recording;
+  const audioReadyHint = t.typeWhatYouSaid;
 
   return (
     <div className="flex h-[min(88vh,860px)] flex-col rounded-2xl border border-line bg-card md:h-[min(78vh,720px)]">
@@ -858,7 +910,8 @@ export function LessonChatClient({
             pendingItems={leftPending}
             showInterim={holding === "en"}
             interim={interim}
-            draft={draft}
+            composerText={composerEn}
+            hasPendingAudio={pendingAudio?.originalLang === "en"}
             dir="rtl"
             cardClass="rounded-xl border border-line bg-bg px-3 py-2 text-sm"
             empty={t.paneLeftEmpty}
@@ -868,21 +921,19 @@ export function LessonChatClient({
             holdHint={holdHint}
             recordingLabel={recordingLabel}
             uploadingAudio={t.uploadingAudio}
-            typeWhatYouSaid={t.typeWhatYouSaid}
-            sendWithAudio={t.sendWithAudio}
+            typePlaceholder={t.typeMessage}
+            sendLabel={
+              pendingAudio?.originalLang === "en" ? t.sendWithAudio : t.send
+            }
+            audioReadyHint={audioReadyHint}
             deleteLabel={t.deleteLine}
             toggleMode={toggleMode}
+            onComposerChange={(text) => setComposer("en", text)}
+            onSendText={() => sendComposer("en")}
             onStartHold={(side) => void startHold(side)}
             onStopHold={requestStopHold}
             onDeleteMessage={onDeleteMessage}
-            onDraftTextChange={(text) =>
-              setDraft((d) => (d ? { ...d, text } : d))
-            }
-            onSendDraft={() => {
-              if (!draft || draft.originalLang !== "en") return;
-              sendFinal(draft.text, draft.originalLang, draft.audioBlob);
-            }}
-            onCancelDraft={() => setDraft(null)}
+            onClearPendingAudio={() => setPendingAudio(null)}
           />
         </div>
         <div className="flex min-h-0 flex-col">
@@ -894,7 +945,8 @@ export function LessonChatClient({
             pendingItems={rightPending}
             showInterim={holding === "ar"}
             interim={interim}
-            draft={draft}
+            composerText={composerAr}
+            hasPendingAudio={pendingAudio?.originalLang === "ar"}
             dir="ltr"
             cardClass="rounded-xl border border-olive/25 bg-olive/5 px-3 py-2 text-sm"
             empty={t.paneRightEmpty}
@@ -904,21 +956,19 @@ export function LessonChatClient({
             holdHint={holdHint}
             recordingLabel={recordingLabel}
             uploadingAudio={t.uploadingAudio}
-            typeWhatYouSaid={t.typeWhatYouSaid}
-            sendWithAudio={t.sendWithAudio}
+            typePlaceholder={t.typeMessage}
+            sendLabel={
+              pendingAudio?.originalLang === "ar" ? t.sendWithAudio : t.send
+            }
+            audioReadyHint={audioReadyHint}
             deleteLabel={t.deleteLine}
             toggleMode={toggleMode}
+            onComposerChange={(text) => setComposer("ar", text)}
+            onSendText={() => sendComposer("ar")}
             onStartHold={(side) => void startHold(side)}
             onStopHold={requestStopHold}
             onDeleteMessage={onDeleteMessage}
-            onDraftTextChange={(text) =>
-              setDraft((d) => (d ? { ...d, text } : d))
-            }
-            onSendDraft={() => {
-              if (!draft || draft.originalLang !== "ar") return;
-              sendFinal(draft.text, draft.originalLang, draft.audioBlob);
-            }}
-            onCancelDraft={() => setDraft(null)}
+            onClearPendingAudio={() => setPendingAudio(null)}
           />
         </div>
       </div>
