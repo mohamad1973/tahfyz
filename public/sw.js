@@ -1,4 +1,4 @@
-/* Tahfyz PWA v2-tts-listen — minimal service worker for installability */
+/* Tahfyz PWA v3-orpheus-tts — minimal service worker for installability */
 self.addEventListener("install", (event) => {
   self.skipWaiting();
 });

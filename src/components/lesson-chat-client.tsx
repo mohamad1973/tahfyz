@@ -132,25 +132,39 @@ function MessageCard({
 }) {
   const originalDir = originalLang === "ar" ? "rtl" : "ltr";
   const [ttsPending, setTtsPending] = useState(false);
-  const [ttsError, setTtsError] = useState(false);
+  const [ttsError, setTtsError] = useState<string | null>(null);
   const [ttsUrl, setTtsUrl] = useState(translatedAudioUrl);
   const ttsRef = useRef<HTMLAudioElement | null>(null);
+  const playWhenReadyRef = useRef(false);
 
   useEffect(() => {
     setTtsUrl(translatedAudioUrl);
   }, [translatedAudioUrl]);
 
+  async function playTtsElement(el: HTMLAudioElement) {
+    try {
+      el.currentTime = 0;
+      await el.play();
+    } catch {
+      setTtsError(listenErrorLabel);
+    }
+  }
+
+  function onTtsCanPlay() {
+    if (!playWhenReadyRef.current) return;
+    playWhenReadyRef.current = false;
+    const el = ttsRef.current;
+    if (el) void playTtsElement(el);
+  }
+
   async function listen() {
-    setTtsError(false);
+    setTtsError(null);
     if (ttsUrl) {
       const el = ttsRef.current;
       if (el) {
-        try {
-          el.currentTime = 0;
-          await el.play();
-        } catch {
-          /* ignore autoplay */
-        }
+        await playTtsElement(el);
+      } else {
+        playWhenReadyRef.current = true;
       }
       return;
     }
@@ -159,13 +173,11 @@ function MessageCard({
     const res = await onSpeak(id);
     setTtsPending(false);
     if (!res.ok) {
-      setTtsError(true);
+      setTtsError(res.error?.trim() || listenErrorLabel);
       return;
     }
+    playWhenReadyRef.current = true;
     setTtsUrl(res.url);
-    window.setTimeout(() => {
-      void ttsRef.current?.play();
-    }, 50);
   }
 
   return (
@@ -224,15 +236,19 @@ function MessageCard({
         </button>
       ) : null}
       {ttsError ? (
-        <p className="mt-1 text-[11px] text-danger">{listenErrorLabel}</p>
+        <p className="mt-1 text-xs font-medium text-danger" role="alert">
+          {ttsError}
+        </p>
       ) : null}
       {ttsUrl ? (
         <audio
+          key={ttsUrl}
           ref={ttsRef}
           controls
-          preload="metadata"
+          preload="auto"
           playsInline
           src={ttsUrl}
+          onCanPlay={onTtsCanPlay}
           className="mt-2 w-full max-w-full"
         />
       ) : null}
