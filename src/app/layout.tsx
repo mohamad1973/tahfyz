@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Fraunces, Source_Sans_3 } from "next/font/google";
 import { LanguageProvider } from "@/lib/i18n/provider";
-import { InstallPrompt } from "@/components/install-prompt";
+import { UnregisterSw } from "@/components/unregister-sw";
 import "./globals.css";
 
 const display = Fraunces({
@@ -25,8 +25,7 @@ export const metadata: Metadata = {
     "Learn Quran and Islamic sciences with Egyptian teachers. Live online Hifz, Tajweed, and more for students in the US and Europe.",
   applicationName: "Tahfyz",
   appleWebApp: {
-    capable: true,
-    statusBarStyle: "default",
+    capable: false,
     title: "Tahfyz",
   },
   icons: {
@@ -58,7 +57,7 @@ export default function RootLayout({
       <body suppressHydrationWarning className="min-h-full antialiased mesh-bg">
         <LanguageProvider>
           {children}
-          <InstallPrompt />
+          <UnregisterSw />
         </LanguageProvider>
       </body>
     </html>

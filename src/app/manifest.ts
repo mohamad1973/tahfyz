@@ -8,7 +8,7 @@ export default function manifest(): MetadataRoute.Manifest {
       "Learn Quran and Islamic sciences with Egyptian teachers for international students.",
     start_url: "/",
     scope: "/",
-    display: "standalone",
+    display: "browser",
     orientation: "portrait-primary",
     background_color: "#f3efe6",
     theme_color: "#3d5a40",
