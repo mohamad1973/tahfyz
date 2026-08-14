@@ -39,6 +39,12 @@ type PendingBubble = {
   text: string;
 };
 
+type AudioDraft = {
+  originalLang: ChatLang;
+  audioBlob: Blob;
+  text: string;
+};
+
 function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
   if (typeof window === "undefined") return null;
   const w = window as unknown as {
@@ -48,14 +54,19 @@ function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
   return w.SpeechRecognition || w.webkitSpeechRecognition || null;
 }
 
+function isMobileCapture(): boolean {
+  if (typeof window === "undefined") return false;
+  const coarse = window.matchMedia("(pointer: coarse)").matches;
+  const ua = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  return coarse || ua;
+}
+
 function pickAudioMime(): string | undefined {
   if (typeof MediaRecorder === "undefined") return undefined;
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/mp4",
-    "audio/ogg",
-  ];
+  const mobile = isMobileCapture();
+  const candidates = mobile
+    ? ["audio/mp4", "audio/aac", "audio/webm;codecs=opus", "audio/webm", "audio/ogg"]
+    : ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"];
   return candidates.find((t) => MediaRecorder.isTypeSupported(t));
 }
 
@@ -67,34 +78,52 @@ function messagesFingerprint(list: ChatMessage[]) {
   return list
     .map(
       (m) =>
-        `${m.id}|${m.audioUrl ?? ""}|${m.translatedText}|${m.originalLang}|${m.createdAt}`,
+        `${m.id}|${m.audioUrl ?? ""}|${m.translatedText}|${m.originalText}|${m.originalLang}|${m.createdAt}`,
     )
     .join("\n");
 }
 
 function MessageCard({
   id,
-  text,
+  originalText,
+  translatedText,
+  originalLang,
   audioUrl,
-  dir,
+  paneDir,
   cardClass,
   deleteLabel,
   onDelete,
 }: {
   id: string;
-  text: string;
+  originalText: string;
+  translatedText: string;
+  originalLang: ChatLang;
   audioUrl?: string;
-  dir: "rtl" | "ltr";
+  paneDir: "rtl" | "ltr";
   cardClass: string;
   deleteLabel: string;
   onDelete: (messageId: string) => void;
 }) {
+  const originalDir = originalLang === "ar" ? "rtl" : "ltr";
   return (
     <div className={cardClass}>
       <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 flex-1 whitespace-pre-wrap" dir={dir}>
-          {text}
-        </p>
+        <div className="min-w-0 flex-1 space-y-1">
+          {originalText ? (
+            <p
+              className="whitespace-pre-wrap text-xs text-ink-muted"
+              dir={originalDir}
+            >
+              {originalText}
+            </p>
+          ) : null}
+          <p
+            className="whitespace-pre-wrap text-sm font-medium text-ink"
+            dir={paneDir}
+          >
+            {translatedText}
+          </p>
+        </div>
         <button
           type="button"
           onClick={() => onDelete(id)}
@@ -108,6 +137,7 @@ function MessageCard({
         <audio
           controls
           preload="metadata"
+          playsInline
           src={audioUrl}
           className="mt-2 w-full max-w-full"
         />
@@ -121,6 +151,7 @@ function HoldButton({
   label,
   active,
   recordingLabel,
+  toggleMode,
   onStart,
   onStop,
 }: {
@@ -128,23 +159,32 @@ function HoldButton({
   label: string;
   active: boolean;
   recordingLabel: string;
+  toggleMode: boolean;
   onStart: (side: ChatLang) => void;
   onStop: () => void;
 }) {
   return (
     <button
       type="button"
-      className={`select-none rounded-xl px-4 py-4 text-base font-semibold touch-none ${
+      className={`w-full select-none rounded-xl px-4 py-4 text-base font-semibold touch-manipulation ${
         active
           ? "bg-danger text-card"
           : "bg-olive text-card hover:bg-olive-deep"
       }`}
+      onClick={(e) => {
+        if (!toggleMode) return;
+        e.preventDefault();
+        if (active) onStop();
+        else onStart(side);
+      }}
       onPointerDown={(e) => {
+        if (toggleMode) return;
         e.preventDefault();
         (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
         onStart(side);
       }}
       onPointerUp={(e) => {
+        if (toggleMode) return;
         e.preventDefault();
         try {
           (e.currentTarget as HTMLButtonElement).releasePointerCapture(
@@ -155,7 +195,9 @@ function HoldButton({
         }
         onStop();
       }}
-      onPointerCancel={() => onStop()}
+      onPointerCancel={() => {
+        if (!toggleMode) onStop();
+      }}
       onContextMenu={(e) => e.preventDefault()}
     >
       {active ? recordingLabel : label}
@@ -168,40 +210,55 @@ function ChatPane({
   pendingItems,
   showInterim,
   interim,
+  draft,
   dir,
   cardClass,
   empty,
   holdSide,
   holdLabel,
   holdActive,
-  holdToRecord,
+  holdHint,
   recordingLabel,
   uploadingAudio,
+  typeWhatYouSaid,
+  sendWithAudio,
   deleteLabel,
+  toggleMode,
   onStartHold,
   onStopHold,
   onDeleteMessage,
+  onDraftTextChange,
+  onSendDraft,
+  onCancelDraft,
 }: {
   items: ChatMessage[];
   pendingItems: PendingBubble[];
   showInterim: boolean;
   interim: string;
+  draft: AudioDraft | null;
   dir: "rtl" | "ltr";
   cardClass: string;
   empty: string;
   holdSide: ChatLang;
   holdLabel: string;
   holdActive: boolean;
-  holdToRecord: string;
+  holdHint: string;
   recordingLabel: string;
   uploadingAudio: string;
+  typeWhatYouSaid: string;
+  sendWithAudio: string;
   deleteLabel: string;
+  toggleMode: boolean;
   onStartHold: (side: ChatLang) => void;
   onStopHold: () => void;
   onDeleteMessage: (messageId: string) => void;
+  onDraftTextChange: (text: string) => void;
+  onSendDraft: () => void;
+  onCancelDraft: () => void;
 }) {
+  const showDraft = draft?.originalLang === holdSide;
   return (
-    <section className="flex min-h-0 flex-col" dir={dir}>
+    <section className="flex min-h-[42vh] flex-1 flex-col md:min-h-0" dir={dir}>
       <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
         {showInterim && interim && (
           <div className="rounded-xl border border-dashed border-line px-3 py-2 text-sm text-ink-muted">
@@ -223,9 +280,11 @@ function ChatPane({
           <MessageCard
             key={m.id}
             id={m.id}
-            text={m.translatedText}
+            originalText={m.originalText}
+            translatedText={m.translatedText}
+            originalLang={m.originalLang}
             audioUrl={m.audioUrl}
-            dir={dir}
+            paneDir={dir}
             cardClass={cardClass}
             deleteLabel={deleteLabel}
             onDelete={onDeleteMessage}
@@ -233,19 +292,50 @@ function ChatPane({
         ))}
         {items.length === 0 &&
           pendingItems.length === 0 &&
-          !(showInterim && interim) && (
+          !(showInterim && interim) &&
+          !showDraft && (
             <p className="text-center text-xs text-ink-muted">{empty}</p>
           )}
       </div>
       <div className="border-t border-line p-3">
-        <p className="mb-2 text-center text-[11px] text-ink-muted">
-          {holdToRecord}
-        </p>
+        {showDraft ? (
+          <div className="mb-3 space-y-2">
+            <p className="text-center text-[11px] text-ink-muted">
+              {typeWhatYouSaid}
+            </p>
+            <textarea
+              value={draft.text}
+              onChange={(e) => onDraftTextChange(e.target.value)}
+              rows={2}
+              className="w-full rounded-xl border border-line bg-bg px-3 py-2 text-sm"
+              dir={holdSide === "ar" ? "rtl" : "ltr"}
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={onSendDraft}
+                disabled={!draft.text.trim()}
+                className="flex-1 rounded-xl bg-olive px-3 py-2 text-sm font-semibold text-card disabled:opacity-50"
+              >
+                {sendWithAudio}
+              </button>
+              <button
+                type="button"
+                onClick={onCancelDraft}
+                className="rounded-xl border border-line px-3 py-2 text-sm"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        ) : null}
+        <p className="mb-2 text-center text-[11px] text-ink-muted">{holdHint}</p>
         <HoldButton
           side={holdSide}
           label={holdLabel}
           active={holdActive}
           recordingLabel={recordingLabel}
+          toggleMode={toggleMode}
           onStart={onStartHold}
           onStop={onStopHold}
         />
@@ -271,6 +361,8 @@ export function LessonChatClient({
   const [error, setError] = useState<string | null>(null);
   const [, start] = useTransition();
   const [clearing, setClearing] = useState(false);
+  const [toggleMode, setToggleMode] = useState(false);
+  const [draft, setDraft] = useState<AudioDraft | null>(null);
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -281,8 +373,11 @@ export function LessonChatClient({
   const interimRef = useRef("");
   const sendQueueRef = useRef<Promise<void>>(Promise.resolve());
   const stoppingRef = useRef(false);
+  const startingRef = useRef(false);
+  const stopRequestedRef = useRef(false);
   const speechDelayTimerRef = useRef<number | undefined>(undefined);
   const recorderMimeRef = useRef("audio/webm;codecs=opus");
+  const useSpeechDuringRecordRef = useRef(true);
 
   const leftMessages = useMemo(
     () => messages.filter((m) => m.originalLang === "en").sort(byNewest),
@@ -294,6 +389,11 @@ export function LessonChatClient({
   );
   const leftPending = pending.filter((p) => p.originalLang === "en");
   const rightPending = pending.filter((p) => p.originalLang === "ar");
+
+  useEffect(() => {
+    setToggleMode(isMobileCapture());
+    useSpeechDuringRecordRef.current = !isMobileCapture();
+  }, []);
 
   function appendMessage(message: ChatMessage) {
     setMessages((prev) =>
@@ -319,7 +419,6 @@ export function LessonChatClient({
         lang === "ar" ? "التسجيل قصير أو فارغ" : "Recording too short or empty",
       );
     }
-    // Keep full MIME including codecs for correct playback
     const fullType =
       blob.type || recorderMimeRef.current || "audio/webm;codecs=opus";
     const baseType = fullType.split(";")[0].trim() || "audio/webm";
@@ -343,7 +442,6 @@ export function LessonChatClient({
       });
       return result.url;
     } catch {
-      // Fallback without codec suffix if token allow-list is strict
       const file2 = new File([blob], `rec.${ext}`, { type: baseType });
       const result = await upload(pathname, file2, {
         access: "public",
@@ -365,16 +463,32 @@ export function LessonChatClient({
     audioBlob: Blob | null,
   ) {
     const payload = text.trim();
-    if (!payload && !audioBlob?.size) return;
-    const displayText =
-      payload ||
-      (lang === "ar" ? "(تسجيل صوتي)" : "(voice recording)");
+    if (!payload) {
+      if (audioBlob && audioBlob.size >= 500) {
+        setDraft({ originalLang, audioBlob, text: "" });
+        setError(
+          lang === "ar"
+            ? "الصوت جاهز — اكتب ما قلته ثم أرسل"
+            : "Audio ready — type what you said, then send",
+        );
+      } else if (!audioBlob?.size) {
+        setError(
+          lang === "ar"
+            ? "لم يُلتقط نص ولا صوت"
+            : "No speech or audio captured",
+        );
+      }
+      return;
+    }
+
+    const displayText = payload;
     const tempId = `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     setPending((prev) => [
       { id: tempId, originalLang, text: displayText },
       ...prev,
     ]);
     setInterim("");
+    setDraft(null);
 
     sendQueueRef.current = sendQueueRef.current.then(async () => {
       setError(null);
@@ -392,20 +506,9 @@ export function LessonChatClient({
       } else if (audioBlob && audioBlob.size > 0 && audioBlob.size < 500) {
         setError(
           lang === "ar"
-            ? "التسجيل قصير جداً — اضغط مطوّلاً وتكلم ثم ارفع"
-            : "Recording too short — hold longer while speaking",
+            ? "التسجيل قصير جداً — سجّل مدة أطول أثناء الكلام"
+            : "Recording too short — record longer while speaking",
         );
-      }
-      if (!payload) {
-        setPending((prev) => prev.filter((p) => p.id !== tempId));
-        if (!audioUrl) {
-          setError(
-            lang === "ar"
-              ? "لم يُلتقط نص ولا صوت"
-              : "No speech or audio captured",
-          );
-        }
-        return;
       }
       const res = await sendChatMessageAction({
         threadId,
@@ -442,12 +545,17 @@ export function LessonChatClient({
       };
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: mime });
-        resolve(blob.size >= 500 ? blob : blob.size > 0 ? blob : null);
+        resolve(blob.size > 0 ? blob : null);
       };
       recorder.onerror = () => resolve(null);
 
       try {
         if (recorder.state === "recording") {
+          try {
+            recorder.requestData?.();
+          } catch {
+            /* ignore */
+          }
           recorder.stop();
         } else {
           resolve(null);
@@ -458,6 +566,14 @@ export function LessonChatClient({
     });
   }
 
+  function requestStopHold() {
+    if (startingRef.current) {
+      stopRequestedRef.current = true;
+      return;
+    }
+    stopHoldAndTranslate();
+  }
+
   function stopHoldAndTranslate() {
     if (stoppingRef.current) return;
     const side = holdingRef.current;
@@ -466,8 +582,8 @@ export function LessonChatClient({
     holdingRef.current = null;
     setHolding(null);
     clearSpeechDelay();
+    stopRequestedRef.current = false;
 
-    // Stop speech first to release mic conflict
     const rec = recognitionRef.current;
     recognitionRef.current = null;
     try {
@@ -492,16 +608,15 @@ export function LessonChatClient({
     };
 
     if (recorder && recorder.state !== "inactive") {
-      // Small delay so speech release settles before stopping the recorder
       window.setTimeout(() => {
         void stopRecorderToBlob(recorder).then((blob) => {
           if (blob && blob.size < 500) {
             setError(
               lang === "ar"
-                ? "الصوت المسجّل ضعيف أو صامت — أعد المحاولة مع الإبقاء على الزر أثناء الكلام"
-                : "Recorded audio is weak/silent — hold the button while speaking and try again",
+                ? "الصوت المسجّل ضعيف أو صامت — أعد المحاولة وتكلم أثناء التسجيل"
+                : "Recorded audio is weak/silent — try again and speak while recording",
             );
-            finish(null);
+            finish(blob.size > 0 ? blob : null);
             return;
           }
           finish(blob);
@@ -513,7 +628,10 @@ export function LessonChatClient({
     }
   }
 
-  function beginSpeechRecognition(Ctor: new () => SpeechRecognitionLike, side: ChatLang) {
+  function beginSpeechRecognition(
+    Ctor: new () => SpeechRecognitionLike,
+    side: ChatLang,
+  ) {
     const rec = new Ctor();
     rec.lang = side === "ar" ? "ar-EG" : "en-US";
     rec.continuous = true;
@@ -563,17 +681,9 @@ export function LessonChatClient({
   }
 
   async function startHold(side: ChatLang) {
-    if (holdingRef.current || stoppingRef.current) return;
+    if (holdingRef.current || stoppingRef.current || startingRef.current) return;
     setError(null);
-    const Ctor = getSpeechRecognition();
-    if (!Ctor) {
-      setError(
-        lang === "ar"
-          ? "المتصفح لا يدعم التعرف على الصوت. استخدم Chrome."
-          : "Speech recognition is not supported. Use Chrome.",
-      );
-      return;
-    }
+    setDraft(null);
 
     finalsRef.current = "";
     interimRef.current = "";
@@ -582,8 +692,9 @@ export function LessonChatClient({
     setHolding(side);
     setInterim("");
     clearSpeechDelay();
+    startingRef.current = true;
+    stopRequestedRef.current = false;
 
-    // Start MediaRecorder first (before Web Speech) to reduce silent captures
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -592,13 +703,16 @@ export function LessonChatClient({
           channelCount: 1,
         },
       });
+
       if (holdingRef.current !== side) {
         stream.getTracks().forEach((tr) => tr.stop());
+        startingRef.current = false;
         return;
       }
+
       mediaStreamRef.current = stream;
       const mime = pickAudioMime();
-      recorderMimeRef.current = mime || "audio/webm;codecs=opus";
+      recorderMimeRef.current = mime || "audio/mp4";
       const recorder = mime
         ? new MediaRecorder(stream, { mimeType: mime })
         : new MediaRecorder(stream);
@@ -606,7 +720,7 @@ export function LessonChatClient({
         if (ev.data.size > 0) audioChunksRef.current.push(ev.data);
       };
       mediaRecorderRef.current = recorder;
-      recorder.start();
+      recorder.start(250);
     } catch {
       setError(
         lang === "ar"
@@ -615,14 +729,28 @@ export function LessonChatClient({
       );
       holdingRef.current = null;
       setHolding(null);
+      startingRef.current = false;
+      stopRequestedRef.current = false;
       return;
     }
 
-    // Delay STT so MediaRecorder grabs the mic stream first
-    speechDelayTimerRef.current = window.setTimeout(() => {
-      if (holdingRef.current !== side) return;
-      beginSpeechRecognition(Ctor, side);
-    }, 150);
+    startingRef.current = false;
+
+    if (stopRequestedRef.current) {
+      stopHoldAndTranslate();
+      return;
+    }
+
+    // Desktop: STT after recorder owns the mic. Mobile: skip concurrent STT.
+    if (useSpeechDuringRecordRef.current) {
+      const Ctor = getSpeechRecognition();
+      if (Ctor) {
+        speechDelayTimerRef.current = window.setTimeout(() => {
+          if (holdingRef.current !== side) return;
+          beginSpeechRecognition(Ctor, side);
+        }, 150);
+      }
+    }
   }
 
   useEffect(() => {
@@ -678,6 +806,7 @@ export function LessonChatClient({
       setMessages([]);
       setPending([]);
       setInterim("");
+      setDraft(null);
       setError(null);
     });
   }
@@ -693,8 +822,11 @@ export function LessonChatClient({
     });
   }
 
+  const holdHint = toggleMode ? t.tapToRecord : t.holdToRecord;
+  const recordingLabel = toggleMode ? t.tapToStop : t.recording;
+
   return (
-    <div className="flex h-[min(78vh,720px)] flex-col rounded-2xl border border-line bg-card">
+    <div className="flex h-[min(88vh,860px)] flex-col rounded-2xl border border-line bg-card md:h-[min(78vh,720px)]">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-3">
         <div>
           <div className="font-display text-lg text-olive-deep">
@@ -714,10 +846,10 @@ export function LessonChatClient({
       </div>
 
       <div
-        className="grid min-h-0 flex-1 grid-cols-2 divide-x divide-line"
+        className="grid min-h-0 flex-1 grid-cols-1 divide-y divide-line md:grid-cols-2 md:divide-x md:divide-y-0"
         dir="ltr"
       >
-        <div className="flex min-h-0 flex-col border-r border-line">
+        <div className="flex min-h-0 flex-col md:border-r md:border-line">
           <header className="border-b border-line bg-bg-deep/50 px-3 py-2 text-center text-xs font-semibold text-ink-muted">
             English → العربية
           </header>
@@ -726,19 +858,31 @@ export function LessonChatClient({
             pendingItems={leftPending}
             showInterim={holding === "en"}
             interim={interim}
+            draft={draft}
             dir="rtl"
             cardClass="rounded-xl border border-line bg-bg px-3 py-2 text-sm"
             empty={t.paneLeftEmpty}
             holdSide="en"
             holdLabel={t.talk}
             holdActive={holding === "en"}
-            holdToRecord={t.holdToRecord}
-            recordingLabel={t.recording}
+            holdHint={holdHint}
+            recordingLabel={recordingLabel}
             uploadingAudio={t.uploadingAudio}
+            typeWhatYouSaid={t.typeWhatYouSaid}
+            sendWithAudio={t.sendWithAudio}
             deleteLabel={t.deleteLine}
+            toggleMode={toggleMode}
             onStartHold={(side) => void startHold(side)}
-            onStopHold={stopHoldAndTranslate}
+            onStopHold={requestStopHold}
             onDeleteMessage={onDeleteMessage}
+            onDraftTextChange={(text) =>
+              setDraft((d) => (d ? { ...d, text } : d))
+            }
+            onSendDraft={() => {
+              if (!draft || draft.originalLang !== "en") return;
+              sendFinal(draft.text, draft.originalLang, draft.audioBlob);
+            }}
+            onCancelDraft={() => setDraft(null)}
           />
         </div>
         <div className="flex min-h-0 flex-col">
@@ -750,19 +894,31 @@ export function LessonChatClient({
             pendingItems={rightPending}
             showInterim={holding === "ar"}
             interim={interim}
+            draft={draft}
             dir="ltr"
             cardClass="rounded-xl border border-olive/25 bg-olive/5 px-3 py-2 text-sm"
             empty={t.paneRightEmpty}
             holdSide="ar"
             holdLabel={t.speakAr}
             holdActive={holding === "ar"}
-            holdToRecord={t.holdToRecord}
-            recordingLabel={t.recording}
+            holdHint={holdHint}
+            recordingLabel={recordingLabel}
             uploadingAudio={t.uploadingAudio}
+            typeWhatYouSaid={t.typeWhatYouSaid}
+            sendWithAudio={t.sendWithAudio}
             deleteLabel={t.deleteLine}
+            toggleMode={toggleMode}
             onStartHold={(side) => void startHold(side)}
-            onStopHold={stopHoldAndTranslate}
+            onStopHold={requestStopHold}
             onDeleteMessage={onDeleteMessage}
+            onDraftTextChange={(text) =>
+              setDraft((d) => (d ? { ...d, text } : d))
+            }
+            onSendDraft={() => {
+              if (!draft || draft.originalLang !== "ar") return;
+              sendFinal(draft.text, draft.originalLang, draft.audioBlob);
+            }}
+            onCancelDraft={() => setDraft(null)}
           />
         </div>
       </div>

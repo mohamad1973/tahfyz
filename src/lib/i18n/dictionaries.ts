@@ -63,8 +63,12 @@ export type Dictionary = {
   talk: string;
   speakAr: string;
   holdToRecord: string;
+  tapToRecord: string;
+  tapToStop: string;
   recording: string;
   uploadingAudio: string;
+  typeWhatYouSaid: string;
+  sendWithAudio: string;
   deleteLine: string;
   resetPassword: string;
   email: string;
@@ -141,15 +145,19 @@ export const dictionaries: Record<Lang, Dictionary> = {
     micHintTeacher:
       "تكلم عربي أو إنجليزي — الترجمة تظهر للطرفين في العمودين.",
     micHintBoth:
-      "اضغط مطوّلاً على Talk (إنجليزي) أو تحدث (عربي) ثم ارفع للإرسال والترجمة فوراً.",
+      "على الموبايل: اضغط Talk أو تحدث للبدء ثم اضغط مجدداً للإيقاف. على الكمبيوتر: اضغط مطوّلاً ثم ارفع.",
     paneLeftEmpty: "الكلام الإنجليزي يظهر هنا مترجماً للعربية",
     paneRightEmpty: "الكلام العربي يظهر هنا مترجماً للإنجليزية",
     clearChat: "مسح المحادثة",
     talk: "Talk",
     speakAr: "تحدث",
     holdToRecord: "اضغط باستمرار للتسجيل — ارفع للإرسال والترجمة",
+    tapToRecord: "اضغط للبدء — اضغط مجدداً للإيقاف والإرسال",
+    tapToStop: "يسجّل… اضغط للإيقاف",
     recording: "يسجّل… ارفع للإرسال",
     uploadingAudio: "يرفع الصوت…",
+    typeWhatYouSaid: "اكتب ما قلته ثم أرسل مع الصوت",
+    sendWithAudio: "إرسال مع الصوت",
     deleteLine: "حذف",
     resetPassword: "إعادة تعيين كلمة المرور",
     email: "البريد الإلكتروني",
@@ -228,15 +236,19 @@ export const dictionaries: Record<Lang, Dictionary> = {
     micHintTeacher:
       "Speak Arabic or English — translations show for both people in both columns.",
     micHintBoth:
-      "Hold Talk (English) or تحدث (Arabic), then release to send and translate instantly.",
+      "On mobile: tap Talk or تحدث to start, tap again to stop. On desktop: hold, then release.",
     paneLeftEmpty: "English speech appears here translated into Arabic",
     paneRightEmpty: "Arabic speech appears here translated into English",
     clearChat: "Clear chat",
     talk: "Talk",
     speakAr: "تحدث",
     holdToRecord: "Hold to record — release to send and translate",
+    tapToRecord: "Tap to start — tap again to stop and send",
+    tapToStop: "Recording… tap to stop",
     recording: "Recording… release to send",
     uploadingAudio: "Uploading audio…",
+    typeWhatYouSaid: "Type what you said, then send with audio",
+    sendWithAudio: "Send with audio",
     deleteLine: "Delete",
     resetPassword: "Reset password",
     email: "Email",
