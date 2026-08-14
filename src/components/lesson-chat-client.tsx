@@ -186,21 +186,6 @@ function MessageCard({
           >
             {translatedText}
           </p>
-          {translatedText.trim() ? (
-            <button
-              type="button"
-              onClick={() => void listen()}
-              disabled={ttsPending}
-              className="mt-1 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-olive px-3 py-2 text-xs font-semibold text-card hover:bg-olive-deep disabled:opacity-60"
-              title={listenLabel}
-            >
-              <Volume2 className="h-4 w-4 shrink-0" aria-hidden />
-              {ttsPending ? listeningLabel : listenLabel}
-            </button>
-          ) : null}
-          {ttsError ? (
-            <p className="text-[11px] text-danger">{listenErrorLabel}</p>
-          ) : null}
         </div>
         <div className="flex shrink-0 flex-col gap-1">
           <button
@@ -226,6 +211,21 @@ function MessageCard({
           </button>
         </div>
       </div>
+      {translatedText.trim() ? (
+        <button
+          type="button"
+          onClick={() => void listen()}
+          disabled={ttsPending}
+          className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-olive px-3 py-2.5 text-xs font-semibold text-card hover:bg-olive-deep disabled:opacity-60"
+          title={listenLabel}
+        >
+          <Volume2 className="h-4 w-4 shrink-0" aria-hidden />
+          {ttsPending ? listeningLabel : listenLabel}
+        </button>
+      ) : null}
+      {ttsError ? (
+        <p className="mt-1 text-[11px] text-danger">{listenErrorLabel}</p>
+      ) : null}
       {ttsUrl ? (
         <audio
           ref={ttsRef}

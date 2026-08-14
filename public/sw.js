@@ -1,4 +1,4 @@
-/* Tahfyz PWA — minimal service worker for installability */
+/* Tahfyz PWA v2-tts-listen — minimal service worker for installability */
 self.addEventListener("install", (event) => {
   self.skipWaiting();
 });

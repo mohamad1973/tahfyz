@@ -34,15 +34,45 @@ export function InstallPrompt() {
   const deferredRef = useRef<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
-    if (isStandaloneDisplay()) return;
-
     const secure =
       window.location.protocol === "https:" ||
       window.location.hostname === "localhost";
+
+    // Always register/update SW — including installed PWA (standalone),
+    // otherwise the app never picks up new builds.
+    let onControllerChange: (() => void) | undefined;
     if (secure && "serviceWorker" in navigator) {
-      void navigator.serviceWorker.register("/sw.js").catch(() => {
-        /* ignore SW registration errors */
-      });
+      void navigator.serviceWorker
+        .register("/sw.js")
+        .then((reg) => {
+          void reg.update();
+        })
+        .catch(() => {
+          /* ignore SW registration errors */
+        });
+
+      let refreshing = false;
+      onControllerChange = () => {
+        if (refreshing) return;
+        refreshing = true;
+        window.location.reload();
+      };
+      navigator.serviceWorker.addEventListener(
+        "controllerchange",
+        onControllerChange,
+      );
+    }
+
+    // Install banner only when not already installed
+    if (isStandaloneDisplay()) {
+      return () => {
+        if (onControllerChange) {
+          navigator.serviceWorker.removeEventListener(
+            "controllerchange",
+            onControllerChange,
+          );
+        }
+      };
     }
 
     const onBip = (e: Event) => {
@@ -70,6 +100,12 @@ export function InstallPrompt() {
     return () => {
       window.removeEventListener("beforeinstallprompt", onBip);
       window.removeEventListener("appinstalled", onInstalled);
+      if (onControllerChange) {
+        navigator.serviceWorker.removeEventListener(
+          "controllerchange",
+          onControllerChange,
+        );
+      }
     };
   }, []);
 
