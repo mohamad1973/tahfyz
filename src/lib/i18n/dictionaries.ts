@@ -83,6 +83,12 @@ export type Dictionary = {
   newPassword: string;
   confirmPassword: string;
   savePassword: string;
+  installTitle: string;
+  installBody: string;
+  installIosHint: string;
+  installAction: string;
+  installLater: string;
+  installWaiting: string;
 };
 
 export const dictionaries: Record<Lang, Dictionary> = {
@@ -182,6 +188,13 @@ export const dictionaries: Record<Lang, Dictionary> = {
     newPassword: "كلمة مرور جديدة",
     confirmPassword: "تأكيد كلمة المرور",
     savePassword: "حفظ كلمة المرور",
+    installTitle: "ثبّت تطبيق Tahfyz",
+    installBody: "ثبّته على جهازك لفتحه بسرعة مثل التطبيقات — بدون متجر.",
+    installIosHint:
+      "على الآيفون: اضغط مشاركة ثم «إضافة إلى الشاشة الرئيسية» لتثبيت Tahfyz.",
+    installAction: "تثبيت Tahfyz",
+    installLater: "لاحقاً",
+    installWaiting: "جاري تجهيز التثبيت…",
   },
   en: {
     teachers: "Teachers",
@@ -283,5 +296,12 @@ export const dictionaries: Record<Lang, Dictionary> = {
     newPassword: "New password",
     confirmPassword: "Confirm password",
     savePassword: "Save password",
+    installTitle: "Install Tahfyz",
+    installBody: "Install on your device for quick access like an app — no store needed.",
+    installIosHint:
+      "On iPhone: tap Share, then “Add to Home Screen” to install Tahfyz.",
+    installAction: "Install Tahfyz",
+    installLater: "Later",
+    installWaiting: "Preparing install…",
   },
 };
