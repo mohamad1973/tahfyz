@@ -66,6 +66,10 @@ export type Dictionary = {
   tapToRecord: string;
   tapToStop: string;
   recording: string;
+  requestingMic: string;
+  micDeniedHelp: string;
+  micDeadHelp: string;
+  micRetry: string;
   uploadingAudio: string;
   typeWhatYouSaid: string;
   sendWithAudio: string;
@@ -145,7 +149,7 @@ export const dictionaries: Record<Lang, Dictionary> = {
     micHintTeacher:
       "تكلم عربي أو إنجليزي — الترجمة تظهر للطرفين في العمودين.",
     micHintBoth:
-      "الشاشة نصفين. اكتب وأرسل، أو اضغط Talk/تحدث ثم أوقف ليُترجم النص تلقائياً.",
+      "اكتب وأرسل للترجمة. الكمبيوتر: اضغط مطوّلاً على Talk/تحدث. الموبايل: اضغط مرة للبدء ومرة للإيقاف.",
     paneLeftEmpty: "الكلام الإنجليزي يظهر هنا مترجماً للعربية",
     paneRightEmpty: "الكلام العربي يظهر هنا مترجماً للإنجليزية",
     clearChat: "مسح المحادثة",
@@ -155,6 +159,12 @@ export const dictionaries: Record<Lang, Dictionary> = {
     tapToRecord: "اضغط للبدء — اضغط مجدداً للإيقاف والإرسال",
     tapToStop: "يسجّل… اضغط للإيقاف",
     recording: "يسجّل… ارفع للإرسال",
+    requestingMic: "جاري طلب الميكروفون…",
+    micDeniedHelp:
+      "الميكروفون مغلق أو مرفوض. من إعدادات المتصفح اسمح بالميكروفون لهذا الموقع ثم أعد المحاولة. يمكنك الكتابة في الحقل والإرسال.",
+    micDeadHelp:
+      "الميكروفون غير فعّال. تأكد أنه مفتوح في إعدادات الهاتف والمتصفح ثم أعد المحاولة.",
+    micRetry: "إعادة محاولة الميكروفون",
     uploadingAudio: "يرفع الصوت…",
     typeWhatYouSaid: "اكتب ما قلته ثم أرسل مع الصوت",
     sendWithAudio: "إرسال مع الصوت",
@@ -236,7 +246,7 @@ export const dictionaries: Record<Lang, Dictionary> = {
     micHintTeacher:
       "Speak Arabic or English — translations show for both people in both columns.",
     micHintBoth:
-      "Split view. Type and Send, or tap Talk/تحدث then stop to auto-translate.",
+      "Type and Send to translate. Desktop: hold Talk/تحدث. Mobile: tap to start, tap again to stop.",
     paneLeftEmpty: "English speech appears here translated into Arabic",
     paneRightEmpty: "Arabic speech appears here translated into English",
     clearChat: "Clear chat",
@@ -246,6 +256,12 @@ export const dictionaries: Record<Lang, Dictionary> = {
     tapToRecord: "Tap to start — tap again to stop and send",
     tapToStop: "Recording… tap to stop",
     recording: "Recording… release to send",
+    requestingMic: "Requesting microphone…",
+    micDeniedHelp:
+      "Microphone blocked. Allow mic for this site in browser settings, then retry. You can still type and send.",
+    micDeadHelp:
+      "Microphone is not active. Enable it in phone/browser settings, then retry.",
+    micRetry: "Retry microphone",
     uploadingAudio: "Uploading audio…",
     typeWhatYouSaid: "Type what you said, then send with audio",
     sendWithAudio: "Send with audio",

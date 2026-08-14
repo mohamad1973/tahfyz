@@ -156,18 +156,20 @@ function HoldButton({
   label,
   active,
   recordingLabel,
-  toggleMode,
   onStart,
   onStop,
+  onTouchUi,
 }: {
   side: ChatLang;
   label: string;
   active: boolean;
   recordingLabel: string;
-  toggleMode: boolean;
   onStart: (side: ChatLang) => void;
   onStop: () => void;
+  onTouchUi?: (touch: boolean) => void;
 }) {
+  const touchModeRef = useRef(false);
+
   return (
     <button
       type="button"
@@ -176,20 +178,21 @@ function HoldButton({
           ? "bg-danger text-card"
           : "bg-olive text-card hover:bg-olive-deep"
       }`}
-      onClick={(e) => {
-        if (!toggleMode) return;
-        e.preventDefault();
-        if (active) onStop();
-        else onStart(side);
-      }}
       onPointerDown={(e) => {
-        if (toggleMode) return;
+        // Touch/pen: tap-to-toggle via click — avoid hold race (down+up before mic opens)
+        if (e.pointerType === "touch" || e.pointerType === "pen") {
+          touchModeRef.current = true;
+          onTouchUi?.(true);
+          return;
+        }
+        touchModeRef.current = false;
+        onTouchUi?.(false);
         e.preventDefault();
         (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
         onStart(side);
       }}
       onPointerUp={(e) => {
-        if (toggleMode) return;
+        if (e.pointerType === "touch" || e.pointerType === "pen") return;
         e.preventDefault();
         try {
           (e.currentTarget as HTMLButtonElement).releasePointerCapture(
@@ -200,8 +203,16 @@ function HoldButton({
         }
         onStop();
       }}
-      onPointerCancel={() => {
-        if (!toggleMode) onStop();
+      onPointerCancel={(e) => {
+        if (e.pointerType === "touch" || e.pointerType === "pen") return;
+        onStop();
+      }}
+      onClick={(e) => {
+        // Only touch/pen toggles on click; mouse uses hold and must ignore click
+        if (!touchModeRef.current) return;
+        e.preventDefault();
+        if (active) onStop();
+        else onStart(side);
       }}
       onContextMenu={(e) => e.preventDefault()}
     >
@@ -230,13 +241,13 @@ function ChatPane({
   sendLabel,
   audioReadyHint,
   deleteLabel,
-  toggleMode,
   onComposerChange,
   onSendText,
   onStartHold,
   onStopHold,
   onDeleteMessage,
   onClearPendingAudio,
+  onTouchUi,
 }: {
   items: ChatMessage[];
   pendingItems: PendingBubble[];
@@ -257,13 +268,13 @@ function ChatPane({
   sendLabel: string;
   audioReadyHint: string;
   deleteLabel: string;
-  toggleMode: boolean;
   onComposerChange: (text: string) => void;
   onSendText: () => void;
   onStartHold: (side: ChatLang) => void;
   onStopHold: () => void;
   onDeleteMessage: (messageId: string) => void;
   onClearPendingAudio: () => void;
+  onTouchUi?: (touch: boolean) => void;
 }) {
   const inputDir = holdSide === "ar" ? "rtl" : "ltr";
   return (
@@ -344,9 +355,9 @@ function ChatPane({
           label={holdLabel}
           active={holdActive}
           recordingLabel={recordingLabel}
-          toggleMode={toggleMode}
           onStart={onStartHold}
           onStop={onStopHold}
+          onTouchUi={onTouchUi}
         />
       </div>
     </section>
@@ -370,7 +381,10 @@ export function LessonChatClient({
   const [error, setError] = useState<string | null>(null);
   const [, start] = useTransition();
   const [clearing, setClearing] = useState(false);
-  const [toggleMode, setToggleMode] = useState(false);
+  const [touchUi, setTouchUi] = useState(false);
+  const [micStatus, setMicStatus] = useState<
+    "idle" | "requesting" | "denied" | "dead" | "live"
+  >("idle");
   const [composerEn, setComposerEn] = useState("");
   const [composerAr, setComposerAr] = useState("");
   const [pendingAudio, setPendingAudio] = useState<PendingAudio | null>(null);
@@ -391,6 +405,7 @@ export function LessonChatClient({
   const speechDelayTimerRef = useRef<number | undefined>(undefined);
   const recorderMimeRef = useRef("audio/webm;codecs=opus");
   const useSpeechDuringRecordRef = useRef(true);
+  const lastTalkSideRef = useRef<ChatLang>("ar");
 
   const leftMessages = useMemo(
     () => messages.filter((m) => m.originalLang === "en").sort(byNewest),
@@ -404,9 +419,36 @@ export function LessonChatClient({
   const rightPending = pending.filter((p) => p.originalLang === "ar");
 
   useEffect(() => {
-    setToggleMode(isMobileCapture());
-    // Enable Web Speech on mobile too when the browser supports it
+    setTouchUi(isMobileCapture());
     useSpeechDuringRecordRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.permissions?.query) {
+      return;
+    }
+    let cancelled = false;
+    let permissionStatus: PermissionStatus | null = null;
+    const onChange = () => {
+      if (!permissionStatus) return;
+      if (permissionStatus.state === "denied") setMicStatus("denied");
+      else setMicStatus((s) => (s === "denied" ? "idle" : s));
+    };
+    void navigator.permissions
+      .query({ name: "microphone" as PermissionName })
+      .then((status) => {
+        if (cancelled) return;
+        permissionStatus = status;
+        if (status.state === "denied") setMicStatus("denied");
+        status.addEventListener("change", onChange);
+      })
+      .catch(() => {
+        /* permissions API unsupported */
+      });
+    return () => {
+      cancelled = true;
+      permissionStatus?.removeEventListener("change", onChange);
+    };
   }, []);
 
   function appendMessage(message: ChatMessage) {
@@ -638,6 +680,7 @@ export function LessonChatClient({
     const finish = (audioBlob: Blob | null) => {
       stopMediaTracks();
       stoppingRef.current = false;
+      setMicStatus((s) => (s === "live" || s === "requesting" ? "idle" : s));
       sendFinal(textForSend, side, audioBlob);
     };
 
@@ -715,6 +758,7 @@ export function LessonChatClient({
   async function startHold(side: ChatLang) {
     if (holdingRef.current || stoppingRef.current || startingRef.current) return;
     setError(null);
+    lastTalkSideRef.current = side;
 
     const Ctor = getSpeechRecognition();
     const canRecord =
@@ -730,6 +774,22 @@ export function LessonChatClient({
       return;
     }
 
+    // Pre-check denied permission when API exists
+    try {
+      if (navigator.permissions?.query) {
+        const status = await navigator.permissions.query({
+          name: "microphone" as PermissionName,
+        });
+        if (status.state === "denied") {
+          setMicStatus("denied");
+          setError(t.micDeniedHelp);
+          return;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
     finalsRef.current = "";
     interimRef.current = "";
     audioChunksRef.current = [];
@@ -743,6 +803,7 @@ export function LessonChatClient({
     let recorderStarted = false;
 
     if (canRecord) {
+      setMicStatus("requesting");
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -752,13 +813,30 @@ export function LessonChatClient({
           },
         });
 
+        const liveTracks = stream
+          .getAudioTracks()
+          .filter((tr) => tr.readyState === "live" && tr.enabled);
+
+        if (!liveTracks.length) {
+          stream.getTracks().forEach((tr) => tr.stop());
+          setMicStatus("dead");
+          setError(t.micDeadHelp);
+          holdingRef.current = null;
+          setHolding(null);
+          startingRef.current = false;
+          stopRequestedRef.current = false;
+          return;
+        }
+
         if (holdingRef.current !== side) {
           stream.getTracks().forEach((tr) => tr.stop());
           startingRef.current = false;
+          setMicStatus("idle");
           return;
         }
 
         mediaStreamRef.current = stream;
+        setMicStatus("live");
         const mime = pickAudioMime();
         recorderMimeRef.current = mime || "audio/mp4";
         let recorder: MediaRecorder;
@@ -776,11 +854,8 @@ export function LessonChatClient({
         recorder.start();
         recorderStarted = true;
       } catch {
-        setError(
-          lang === "ar"
-            ? "اسمح بالميكروفون، أو اكتب في الحقل واضغط إرسال"
-            : "Allow the microphone, or type in the box and press Send",
-        );
+        setMicStatus("denied");
+        setError(t.micDeniedHelp);
         if (!Ctor) {
           holdingRef.current = null;
           setHolding(null);
@@ -788,6 +863,7 @@ export function LessonChatClient({
           stopRequestedRef.current = false;
           return;
         }
+        // Speech-only fallback still allowed
       }
     }
 
@@ -798,7 +874,6 @@ export function LessonChatClient({
       return;
     }
 
-    // Web Speech for translation text (desktop + mobile when supported)
     if (Ctor && useSpeechDuringRecordRef.current) {
       speechDelayTimerRef.current = window.setTimeout(() => {
         if (holdingRef.current !== side) return;
@@ -807,6 +882,7 @@ export function LessonChatClient({
     } else if (!recorderStarted) {
       holdingRef.current = null;
       setHolding(null);
+      setMicStatus((s) => (s === "live" ? "idle" : s));
       setError(
         lang === "ar"
           ? "تعذر بدء التسجيل — اكتب في الحقل واضغط إرسال"
@@ -886,19 +962,46 @@ export function LessonChatClient({
     });
   }
 
-  const holdHint = toggleMode ? t.tapToRecord : t.holdToRecord;
-  const recordingLabel = toggleMode ? t.tapToStop : t.recording;
+  const holdHint = touchUi ? t.tapToRecord : t.holdToRecord;
+  const recordingLabel =
+    micStatus === "requesting"
+      ? t.requestingMic
+      : touchUi
+        ? t.tapToStop
+        : t.recording;
   const audioReadyHint = t.typeWhatYouSaid;
+  const showMicRetry = micStatus === "denied" || micStatus === "dead";
 
   return (
     <div className="flex h-[min(88vh,860px)] flex-col rounded-2xl border border-line bg-card md:h-[min(78vh,720px)]">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-3">
-        <div>
+        <div className="min-w-0 flex-1">
           <div className="font-display text-lg text-olive-deep">
             {t.chatWith} {peerName}
           </div>
           <p className="text-xs text-ink-muted">{t.micHintBoth}</p>
+          {micStatus === "requesting" && (
+            <p className="mt-1 text-xs text-olive">{t.requestingMic}</p>
+          )}
+          {micStatus === "live" && holding && (
+            <p className="mt-1 text-xs text-olive">
+              {lang === "ar" ? "الميكروفون مفتوح — يسجّل" : "Microphone open — recording"}
+            </p>
+          )}
           {error && <p className="mt-1 text-xs text-danger">{error}</p>}
+          {showMicRetry && (
+            <button
+              type="button"
+              className="mt-2 rounded-lg border border-olive/40 px-3 py-1.5 text-xs font-semibold text-olive hover:bg-olive/10"
+              onClick={() => {
+                setError(null);
+                setMicStatus("idle");
+                void startHold(lastTalkSideRef.current);
+              }}
+            >
+              {t.micRetry}
+            </button>
+          )}
         </div>
         <button
           type="button"
@@ -930,7 +1033,7 @@ export function LessonChatClient({
             empty={t.paneLeftEmpty}
             holdSide="en"
             holdLabel={t.talk}
-            holdActive={holding === "en"}
+            holdActive={holding === "en" || (micStatus === "requesting" && lastTalkSideRef.current === "en")}
             holdHint={holdHint}
             recordingLabel={recordingLabel}
             uploadingAudio={t.uploadingAudio}
@@ -940,13 +1043,13 @@ export function LessonChatClient({
             }
             audioReadyHint={audioReadyHint}
             deleteLabel={t.deleteLine}
-            toggleMode={toggleMode}
             onComposerChange={(text) => setComposer("en", text)}
             onSendText={() => sendComposer("en")}
             onStartHold={(side) => void startHold(side)}
             onStopHold={requestStopHold}
             onDeleteMessage={onDeleteMessage}
             onClearPendingAudio={() => setPendingAudio(null)}
+            onTouchUi={setTouchUi}
           />
         </div>
         <div className="flex min-h-0 flex-col">
@@ -965,7 +1068,7 @@ export function LessonChatClient({
             empty={t.paneRightEmpty}
             holdSide="ar"
             holdLabel={t.speakAr}
-            holdActive={holding === "ar"}
+            holdActive={holding === "ar" || (micStatus === "requesting" && lastTalkSideRef.current === "ar")}
             holdHint={holdHint}
             recordingLabel={recordingLabel}
             uploadingAudio={t.uploadingAudio}
@@ -975,13 +1078,13 @@ export function LessonChatClient({
             }
             audioReadyHint={audioReadyHint}
             deleteLabel={t.deleteLine}
-            toggleMode={toggleMode}
             onComposerChange={(text) => setComposer("ar", text)}
             onSendText={() => sendComposer("ar")}
             onStartHold={(side) => void startHold(side)}
             onStopHold={requestStopHold}
             onDeleteMessage={onDeleteMessage}
             onClearPendingAudio={() => setPendingAudio(null)}
+            onTouchUi={setTouchUi}
           />
         </div>
       </div>
