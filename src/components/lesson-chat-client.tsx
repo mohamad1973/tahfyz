@@ -12,6 +12,12 @@ import {
   transcribeChatAudioAction,
 } from "@/lib/actions";
 import { useI18n } from "@/lib/i18n/provider";
+import {
+  downloadLessonFile,
+  saveAllLessonMessages,
+  savedLessonIds,
+  saveLessonMessage,
+} from "@/lib/lesson-local-store";
 
 type PendingBubble = {
   id: string;
@@ -90,7 +96,11 @@ function MessageCard({
   paneDir,
   cardClass,
   deleteLabel,
+  saveLabel,
+  savedLabel,
+  isSaved,
   onDelete,
+  onSave,
 }: {
   id: string;
   originalText: string;
@@ -100,7 +110,11 @@ function MessageCard({
   paneDir: "rtl" | "ltr";
   cardClass: string;
   deleteLabel: string;
+  saveLabel: string;
+  savedLabel: string;
+  isSaved: boolean;
   onDelete: (messageId: string) => void;
+  onSave: (messageId: string) => void;
 }) {
   const originalDir = originalLang === "ar" ? "rtl" : "ltr";
   return (
@@ -122,14 +136,29 @@ function MessageCard({
             {translatedText}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => onDelete(id)}
-          className="shrink-0 rounded-md border border-danger/30 px-2 py-1 text-[11px] font-semibold text-danger hover:bg-danger/10"
-          title={deleteLabel}
-        >
-          {deleteLabel}
-        </button>
+        <div className="flex shrink-0 flex-col gap-1">
+          <button
+            type="button"
+            onClick={() => onSave(id)}
+            disabled={isSaved}
+            className={`rounded-md border px-2 py-1 text-[11px] font-semibold ${
+              isSaved
+                ? "border-olive/30 text-olive opacity-80"
+                : "border-olive/40 text-olive hover:bg-olive/10"
+            }`}
+            title={isSaved ? savedLabel : saveLabel}
+          >
+            {isSaved ? savedLabel : saveLabel}
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(id)}
+            className="rounded-md border border-danger/30 px-2 py-1 text-[11px] font-semibold text-danger hover:bg-danger/10"
+            title={deleteLabel}
+          >
+            {deleteLabel}
+          </button>
+        </div>
       </div>
       {audioUrl ? (
         <audio
@@ -234,11 +263,15 @@ function ChatPane({
   sendLabel,
   audioReadyHint,
   deleteLabel,
+  saveLabel,
+  savedLabel,
+  savedIds,
   onComposerChange,
   onSendText,
   onStartHold,
   onStopHold,
   onDeleteMessage,
+  onSaveMessage,
   onClearPendingAudio,
   onTouchUi,
 }: {
@@ -261,11 +294,15 @@ function ChatPane({
   sendLabel: string;
   audioReadyHint: string;
   deleteLabel: string;
+  saveLabel: string;
+  savedLabel: string;
+  savedIds: Set<string>;
   onComposerChange: (text: string) => void;
   onSendText: () => void;
   onStartHold: (side: ChatLang) => void;
   onStopHold: () => void;
   onDeleteMessage: (messageId: string) => void;
+  onSaveMessage: (messageId: string) => void;
   onClearPendingAudio: () => void;
   onTouchUi?: (touch: boolean) => void;
 }) {
@@ -310,7 +347,11 @@ function ChatPane({
             paneDir={dir}
             cardClass={cardClass}
             deleteLabel={deleteLabel}
+            saveLabel={saveLabel}
+            savedLabel={savedLabel}
+            isSaved={savedIds.has(m.id)}
             onDelete={onDeleteMessage}
+            onSave={onSaveMessage}
           />
         ))}
         {items.length === 0 &&
@@ -399,6 +440,8 @@ export function LessonChatClient({
   const [transcribingSide, setTranscribingSide] = useState<ChatLang | null>(
     null,
   );
+  const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set());
+  const [localNote, setLocalNote] = useState<string | null>(null);
 
   const recognitionRef = useRef<{
     abort?: () => void;
@@ -431,7 +474,8 @@ export function LessonChatClient({
 
   useEffect(() => {
     setTouchUi(isMobileCapture());
-  }, []);
+    setSavedIds(savedLessonIds(threadId));
+  }, [threadId]);
 
   useEffect(() => {
     if (typeof navigator === "undefined" || !navigator.permissions?.query) {
@@ -888,6 +932,7 @@ export function LessonChatClient({
   }, []);
 
   function onClearChat() {
+    if (!window.confirm(t.clearServerConfirm)) return;
     setClearing(true);
     start(async () => {
       const res = await clearChatThreadAction(threadId);
@@ -903,7 +948,38 @@ export function LessonChatClient({
       setComposer("en", "");
       setComposer("ar", "");
       setError(null);
+      setLocalNote(null);
     });
+  }
+
+  function onSaveMessage(messageId: string) {
+    const message = messages.find((m) => m.id === messageId);
+    if (!message) return;
+    const added = saveLessonMessage(threadId, message);
+    setSavedIds(savedLessonIds(threadId));
+    setLocalNote(added ? t.lessonSavedOk : t.savedLine);
+    setError(null);
+  }
+
+  function onSaveAllLocal() {
+    if (!messages.length) {
+      setLocalNote(t.lessonSavedNone);
+      return;
+    }
+    const added = saveAllLessonMessages(threadId, messages);
+    setSavedIds(savedLessonIds(threadId));
+    setLocalNote(added > 0 ? t.lessonSavedOk : t.lessonSavedNone);
+    setError(null);
+  }
+
+  function onDownloadLesson() {
+    const res = downloadLessonFile(threadId);
+    if (!res.ok) {
+      setLocalNote(t.lessonDownloadEmpty);
+      return;
+    }
+    setLocalNote(`${t.lessonDownloadOk}: ${res.filename}`);
+    setError(null);
   }
 
   function onDeleteMessage(messageId: string) {
@@ -943,6 +1019,9 @@ export function LessonChatClient({
               {lang === "ar" ? "الميكروفون مفتوح — يسجّل" : "Microphone open — recording"}
             </p>
           )}
+          {localNote && (
+            <p className="mt-1 text-xs text-olive">{localNote}</p>
+          )}
           {error && <p className="mt-1 text-xs text-danger">{error}</p>}
           {showMicRetry && (
             <button
@@ -958,14 +1037,30 @@ export function LessonChatClient({
             </button>
           )}
         </div>
-        <button
-          type="button"
-          disabled={clearing}
-          onClick={onClearChat}
-          className="rounded-xl border border-danger/40 px-3 py-2 text-sm font-semibold text-danger hover:bg-danger/10 disabled:opacity-60"
-        >
-          {t.clearChat}
-        </button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onSaveAllLocal}
+            className="rounded-xl border border-olive/40 px-3 py-2 text-sm font-semibold text-olive hover:bg-olive/10"
+          >
+            {t.saveAllLocal}
+          </button>
+          <button
+            type="button"
+            onClick={onDownloadLesson}
+            className="rounded-xl border border-olive/40 px-3 py-2 text-sm font-semibold text-olive hover:bg-olive/10"
+          >
+            {t.downloadLessonFile}
+          </button>
+          <button
+            type="button"
+            disabled={clearing}
+            onClick={onClearChat}
+            className="rounded-xl border border-danger/40 px-3 py-2 text-sm font-semibold text-danger hover:bg-danger/10 disabled:opacity-60"
+          >
+            {t.clearChat}
+          </button>
+        </div>
       </div>
 
       <div
@@ -1001,11 +1096,15 @@ export function LessonChatClient({
             }
             audioReadyHint={audioReadyHint}
             deleteLabel={t.deleteLine}
+            saveLabel={t.saveLine}
+            savedLabel={t.savedLine}
+            savedIds={savedIds}
             onComposerChange={(text) => onComposerEdit("en", text)}
             onSendText={() => sendComposer("en")}
             onStartHold={(side) => void startHold(side)}
             onStopHold={requestStopHold}
             onDeleteMessage={onDeleteMessage}
+            onSaveMessage={onSaveMessage}
             onClearPendingAudio={() => setPendingAudio(null)}
             onTouchUi={setTouchUi}
           />
@@ -1039,11 +1138,15 @@ export function LessonChatClient({
             }
             audioReadyHint={audioReadyHint}
             deleteLabel={t.deleteLine}
+            saveLabel={t.saveLine}
+            savedLabel={t.savedLine}
+            savedIds={savedIds}
             onComposerChange={(text) => onComposerEdit("ar", text)}
             onSendText={() => sendComposer("ar")}
             onStartHold={(side) => void startHold(side)}
             onStopHold={requestStopHold}
             onDeleteMessage={onDeleteMessage}
+            onSaveMessage={onSaveMessage}
             onClearPendingAudio={() => setPendingAudio(null)}
             onTouchUi={setTouchUi}
           />

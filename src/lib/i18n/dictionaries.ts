@@ -89,6 +89,15 @@ export type Dictionary = {
   installAction: string;
   installLater: string;
   installWaiting: string;
+  saveLine: string;
+  savedLine: string;
+  saveAllLocal: string;
+  downloadLessonFile: string;
+  clearServerConfirm: string;
+  lessonSavedOk: string;
+  lessonSavedNone: string;
+  lessonDownloadEmpty: string;
+  lessonDownloadOk: string;
 };
 
 export const dictionaries: Record<Lang, Dictionary> = {
@@ -161,7 +170,7 @@ export const dictionaries: Record<Lang, Dictionary> = {
       "سجّل بالصوت — بعد التوقّف يُحوَّل الكلام إلى نص ثم يُترجم تلقائياً (معلم وطالب).",
     paneLeftEmpty: "الكلام الإنجليزي يظهر هنا مترجماً للعربية",
     paneRightEmpty: "الكلام العربي يظهر هنا مترجماً للإنجليزية",
-    clearChat: "مسح المحادثة",
+    clearChat: "حذف من السيرفر",
     talk: "Talk",
     speakAr: "تحدث",
     holdToRecord: "اضغط باستمرار للتسجيل — ارفع للتحويل والترجمة",
@@ -195,6 +204,16 @@ export const dictionaries: Record<Lang, Dictionary> = {
     installAction: "تثبيت Tahfyz",
     installLater: "لاحقاً",
     installWaiting: "جاري تجهيز التثبيت…",
+    saveLine: "حفظ",
+    savedLine: "محفوظ",
+    saveAllLocal: "حفظ الكل على جهازي",
+    downloadLessonFile: "تنزيل ملف الدرس",
+    clearServerConfirm:
+      "حذف المحادثة من السيرفر؟ ما حفظته على جهازك يبقى. تأكد أنك نزّلت الملف إن أردت.",
+    lessonSavedOk: "تم الحفظ على جهازك",
+    lessonSavedNone: "لا رسائل جديدة للحفظ (أو لا رسائل في الشات)",
+    lessonDownloadEmpty: "لا يوجد محفوظ محلياً اليوم — احفظ جملاً أو احفظ الكل أولاً",
+    lessonDownloadOk: "تم تنزيل ملف الدرس",
   },
   en: {
     teachers: "Teachers",
@@ -269,7 +288,7 @@ export const dictionaries: Record<Lang, Dictionary> = {
       "Record your voice — after you stop, speech becomes text then translates automatically (teacher and student).",
     paneLeftEmpty: "English speech appears here translated into Arabic",
     paneRightEmpty: "Arabic speech appears here translated into English",
-    clearChat: "Clear chat",
+    clearChat: "Delete from server",
     talk: "Talk",
     speakAr: "تحدث",
     holdToRecord: "Hold to record — release to transcribe and translate",
@@ -303,5 +322,15 @@ export const dictionaries: Record<Lang, Dictionary> = {
     installAction: "Install Tahfyz",
     installLater: "Later",
     installWaiting: "Preparing install…",
+    saveLine: "Save",
+    savedLine: "Saved",
+    saveAllLocal: "Save all to my device",
+    downloadLessonFile: "Download lesson file",
+    clearServerConfirm:
+      "Delete the chat from the server? What you saved on your device stays. Download the file first if you need it.",
+    lessonSavedOk: "Saved on your device",
+    lessonSavedNone: "Nothing new to save (or chat is empty)",
+    lessonDownloadEmpty: "Nothing saved locally today — save lines or Save all first",
+    lessonDownloadOk: "Lesson file downloaded",
   },
 };
