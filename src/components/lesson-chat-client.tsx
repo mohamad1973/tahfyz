@@ -716,31 +716,35 @@ export function LessonChatClient({
     setHolding(null);
     clearSpeechDelay();
     stopRequestedRef.current = false;
+    const voiceNoteMode = touchUi || isMobileCapture();
 
     const rec = recognitionRef.current;
     recognitionRef.current = null;
     try {
+      rec?.abort?.();
       rec?.stop();
     } catch {
       /* ignore */
     }
 
-    const speechText = collapseRepeatedSpeech(
-      `${finalsRef.current} ${sessionFinalsRef.current} ${interimRef.current}`.trim(),
-    );
+    let textForSend = "";
+    if (!voiceNoteMode) {
+      const speechText = collapseRepeatedSpeech(
+        `${finalsRef.current} ${sessionFinalsRef.current} ${interimRef.current}`.trim(),
+      );
+      if (speechText && !composerLockedRef.current) {
+        setComposer(side, speechText);
+      } else if (speechText && !getComposer(side).trim()) {
+        setComposer(side, speechText);
+      }
+      textForSend = collapseRepeatedSpeech(
+        (getComposer(side).trim() || speechText).trim(),
+      );
+    }
     finalsRef.current = "";
     sessionFinalsRef.current = "";
     interimRef.current = "";
     setInterim("");
-
-    if (speechText && !composerLockedRef.current) {
-      setComposer(side, speechText);
-    } else if (speechText && !getComposer(side).trim()) {
-      setComposer(side, speechText);
-    }
-    const textForSend = collapseRepeatedSpeech(
-      (getComposer(side).trim() || speechText).trim(),
-    );
 
     const recorder = mediaRecorderRef.current;
     mediaRecorderRef.current = null;
@@ -753,13 +757,34 @@ export function LessonChatClient({
         s === "live" || s === "requesting" ? "idle" : s,
       );
 
+      // Mobile voice-note: attach audio only — user types/edits then presses Send
+      if (voiceNoteMode) {
+        if (audioBlob && audioBlob.size >= 500) {
+          setPendingAudio({ originalLang: side, blob: audioBlob });
+          setError(t.typeWhatYouSaid);
+        } else if (audioBlob && audioBlob.size > 0 && audioBlob.size < 500) {
+          setError(
+            lang === "ar"
+              ? "الصوت المسجّل ضعيف — سجّل مدة أطول ثم اكتب الجملة وأرسل"
+              : "Audio is weak — record longer, then type the sentence and Send",
+          );
+        } else {
+          setError(
+            lang === "ar"
+              ? "لم يُسجَّل صوت — اضغط تحدث مجدداً أو اكتب وأرسل"
+              : "No audio recorded — tap Talk again or type and Send",
+          );
+        }
+        return;
+      }
+
       sendFinal(textForSend, side, audioBlob);
     };
 
     if (recorder && recorder.state !== "inactive") {
       window.setTimeout(() => {
         void stopRecorderToBlob(recorder).then((blob) => {
-          if (blob && blob.size < 500) {
+          if (!voiceNoteMode && blob && blob.size < 500) {
             setError(
               lang === "ar"
                 ? "الصوت المسجّل ضعيف — يمكنك إرسال النص من الحقل أو إعادة التسجيل"
@@ -846,9 +871,19 @@ export function LessonChatClient({
     const canRecord =
       typeof MediaRecorder !== "undefined" &&
       !!navigator.mediaDevices?.getUserMedia;
-    const mobileLike = touchUi || isMobileCapture();
+    const voiceNoteMode = touchUi || isMobileCapture();
 
-    if (!canRecord && !Ctor) {
+    // Mobile: audio-only voice note — never start Web Speech (mic conflict)
+    if (voiceNoteMode) {
+      if (!canRecord) {
+        setError(
+          lang === "ar"
+            ? "التسجيل غير متاح — اكتب في الحقل واضغط إرسال"
+            : "Recording unavailable — type in the box and press Send",
+        );
+        return;
+      }
+    } else if (!canRecord && !Ctor) {
       setError(
         lang === "ar"
           ? "لا يتوفر تسجيل ولا تعرف صوت — اكتب في الحقل واضغط إرسال"
@@ -891,10 +926,8 @@ export function LessonChatClient({
           stream.getTracks().forEach((tr) => tr.stop());
           setMicStatus("dead");
           setError(t.micDeadHelp);
-          if (!Ctor) {
-            holdingRef.current = null;
-            setHolding(null);
-          }
+          holdingRef.current = null;
+          setHolding(null);
           startingRef.current = false;
           stopRequestedRef.current = false;
           return;
@@ -928,13 +961,11 @@ export function LessonChatClient({
       } catch {
         setMicStatus("denied");
         setError(t.micDeniedHelp);
-        if (!Ctor) {
-          holdingRef.current = null;
-          setHolding(null);
-          startingRef.current = false;
-          stopRequestedRef.current = false;
-          return;
-        }
+        holdingRef.current = null;
+        setHolding(null);
+        startingRef.current = false;
+        stopRequestedRef.current = false;
+        return;
       }
     }
 
@@ -945,17 +976,25 @@ export function LessonChatClient({
       return;
     }
 
-    // STT after recorder owns the mic (longer delay on mobile to reduce conflict)
-    if (Ctor && useSpeechDuringRecordRef.current) {
-      const delay = recorderStarted ? (mobileLike ? 280 : 150) : 0;
+    // Desktop only: STT after recorder owns the mic
+    if (!voiceNoteMode && Ctor && useSpeechDuringRecordRef.current) {
       speechDelayTimerRef.current = window.setTimeout(() => {
         if (holdingRef.current !== side) return;
         beginSpeechRecognition(Ctor, side);
-      }, delay);
-    } else if (!recorderStarted && !Ctor) {
+      }, recorderStarted ? 150 : 0);
+    } else if (!voiceNoteMode && !recorderStarted && !Ctor) {
       holdingRef.current = null;
       setHolding(null);
       setMicStatus((s) => (s === "live" ? "idle" : s));
+      setError(
+        lang === "ar"
+          ? "تعذر بدء التسجيل — اكتب في الحقل واضغط إرسال"
+          : "Could not start recording — type in the box and press Send",
+      );
+    } else if (voiceNoteMode && !recorderStarted) {
+      holdingRef.current = null;
+      setHolding(null);
+      setMicStatus("idle");
       setError(
         lang === "ar"
           ? "تعذر بدء التسجيل — اكتب في الحقل واضغط إرسال"
