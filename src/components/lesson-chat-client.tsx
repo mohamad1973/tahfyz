@@ -79,6 +79,39 @@ function byNewest(a: ChatMessage, b: ChatMessage) {
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 }
 
+// #region agent log
+function dbgLog(
+  hypothesisId: string,
+  location: string,
+  message: string,
+  data: Record<string, unknown> = {},
+) {
+  const payload = {
+    sessionId: "362d99",
+    runId: "post-fix",
+    hypothesisId,
+    location,
+    message,
+    data,
+    timestamp: Date.now(),
+  };
+  const body = JSON.stringify(payload);
+  fetch("http://127.0.0.1:7455/ingest/bf789d1d-73ab-44fd-9ed0-8caeb6b2dbaf", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "362d99",
+    },
+    body,
+  }).catch(() => {});
+  fetch("/api/debug-log", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  }).catch(() => {});
+}
+// #endregion
+
 function messagesFingerprint(list: ChatMessage[]) {
   return list
     .map(
@@ -179,6 +212,13 @@ function HoldButton({
           : "bg-olive text-card hover:bg-olive-deep"
       }`}
       onPointerDown={(e) => {
+        // #region agent log
+        dbgLog("A", "HoldButton:onPointerDown", "pointerdown", {
+          side,
+          pointerType: e.pointerType,
+          active,
+        });
+        // #endregion
         // Touch/pen: tap-to-toggle via click — avoid hold race (down+up before mic opens)
         if (e.pointerType === "touch" || e.pointerType === "pen") {
           touchModeRef.current = true;
@@ -192,6 +232,13 @@ function HoldButton({
         onStart(side);
       }}
       onPointerUp={(e) => {
+        // #region agent log
+        dbgLog("A", "HoldButton:onPointerUp", "pointerup", {
+          side,
+          pointerType: e.pointerType,
+          active,
+        });
+        // #endregion
         if (e.pointerType === "touch" || e.pointerType === "pen") return;
         e.preventDefault();
         try {
@@ -208,6 +255,13 @@ function HoldButton({
         onStop();
       }}
       onClick={(e) => {
+        // #region agent log
+        dbgLog("B", "HoldButton:onClick", "click", {
+          side,
+          touchMode: touchModeRef.current,
+          active,
+        });
+        // #endregion
         // Only touch/pen toggles on click; mouse uses hold and must ignore click
         if (!touchModeRef.current) return;
         e.preventDefault();
@@ -637,6 +691,12 @@ export function LessonChatClient({
   }
 
   function requestStopHold() {
+    // #region agent log
+    dbgLog("E", "requestStopHold", "stop requested", {
+      starting: startingRef.current,
+      holding: holdingRef.current,
+    });
+    // #endregion
     if (startingRef.current) {
       stopRequestedRef.current = true;
       return;
@@ -677,10 +737,28 @@ export function LessonChatClient({
     const recorder = mediaRecorderRef.current;
     mediaRecorderRef.current = null;
 
+    // #region agent log
+    dbgLog("F", "stopHoldAndTranslate", "stopping", {
+      side,
+      speechLen: speechText.length,
+      typedLen: typed.length,
+      textForSendLen: textForSend.length,
+      hasRecorder: !!recorder,
+      recorderState: recorder?.state ?? null,
+      chunks: audioChunksRef.current.length,
+    });
+    // #endregion
+
     const finish = (audioBlob: Blob | null) => {
       stopMediaTracks();
       stoppingRef.current = false;
       setMicStatus((s) => (s === "live" || s === "requesting" ? "idle" : s));
+      // #region agent log
+      dbgLog("F", "stopHold:finish", "finish sendFinal", {
+        blobSize: audioBlob?.size ?? 0,
+        textForSendLen: textForSend.length,
+      });
+      // #endregion
       sendFinal(textForSend, side, audioBlob);
     };
 
@@ -756,7 +834,28 @@ export function LessonChatClient({
   }
 
   async function startHold(side: ChatLang) {
-    if (holdingRef.current || stoppingRef.current || startingRef.current) return;
+    // #region agent log
+    dbgLog("C", "startHold:entry", "startHold called", {
+      side,
+      holding: holdingRef.current,
+      stopping: stoppingRef.current,
+      starting: startingRef.current,
+      hasSpeech: !!getSpeechRecognition(),
+      hasMR: typeof MediaRecorder !== "undefined",
+      secure: typeof window !== "undefined" ? window.isSecureContext : null,
+      touchUi,
+    });
+    // #endregion
+    if (holdingRef.current || stoppingRef.current || startingRef.current) {
+      // #region agent log
+      dbgLog("C", "startHold:blocked", "early return busy", {
+        holding: holdingRef.current,
+        stopping: stoppingRef.current,
+        starting: startingRef.current,
+      });
+      // #endregion
+      return;
+    }
     setError(null);
     lastTalkSideRef.current = side;
 
@@ -774,22 +873,6 @@ export function LessonChatClient({
       return;
     }
 
-    // Pre-check denied permission when API exists
-    try {
-      if (navigator.permissions?.query) {
-        const status = await navigator.permissions.query({
-          name: "microphone" as PermissionName,
-        });
-        if (status.state === "denied") {
-          setMicStatus("denied");
-          setError(t.micDeniedHelp);
-          return;
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-
     finalsRef.current = "";
     interimRef.current = "";
     audioChunksRef.current = [];
@@ -800,11 +883,22 @@ export function LessonChatClient({
     startingRef.current = true;
     stopRequestedRef.current = false;
 
+    // Mobile: start STT immediately (same user-gesture turn) so translation can work
+    // even if MediaRecorder fails. Desktop keeps recorder-first then STT.
+    const mobileLike = touchUi || isMobileCapture();
+    if (mobileLike && Ctor && useSpeechDuringRecordRef.current) {
+      // #region agent log
+      dbgLog("F", "startHold:sttImmediate", "start STT before gum", { side });
+      // #endregion
+      beginSpeechRecognition(Ctor, side);
+    }
+
     let recorderStarted = false;
 
     if (canRecord) {
       setMicStatus("requesting");
       try {
+        // CRITICAL: do not await anything before getUserMedia (Safari user-gesture)
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
@@ -817,12 +911,22 @@ export function LessonChatClient({
           .getAudioTracks()
           .filter((tr) => tr.readyState === "live" && tr.enabled);
 
+        // #region agent log
+        dbgLog("D", "startHold:gum", "getUserMedia ok", {
+          tracks: stream.getAudioTracks().length,
+          live: liveTracks.length,
+          labels: stream.getAudioTracks().map((t) => t.readyState),
+        });
+        // #endregion
+
         if (!liveTracks.length) {
           stream.getTracks().forEach((tr) => tr.stop());
           setMicStatus("dead");
           setError(t.micDeadHelp);
-          holdingRef.current = null;
-          setHolding(null);
+          if (!Ctor) {
+            holdingRef.current = null;
+            setHolding(null);
+          }
           startingRef.current = false;
           stopRequestedRef.current = false;
           return;
@@ -832,6 +936,11 @@ export function LessonChatClient({
           stream.getTracks().forEach((tr) => tr.stop());
           startingRef.current = false;
           setMicStatus("idle");
+          // #region agent log
+          dbgLog("E", "startHold:aborted", "holding cleared during gum", {
+            side,
+          });
+          // #endregion
           return;
         }
 
@@ -853,7 +962,13 @@ export function LessonChatClient({
         mediaRecorderRef.current = recorder;
         recorder.start();
         recorderStarted = true;
-      } catch {
+      } catch (err) {
+        // #region agent log
+        dbgLog("D", "startHold:gumFail", "getUserMedia failed", {
+          err: err instanceof Error ? err.name : String(err),
+          message: err instanceof Error ? err.message : String(err),
+        });
+        // #endregion
         setMicStatus("denied");
         setError(t.micDeniedHelp);
         if (!Ctor) {
@@ -863,23 +978,33 @@ export function LessonChatClient({
           stopRequestedRef.current = false;
           return;
         }
-        // Speech-only fallback still allowed
+        // Keep holding for speech-only capture
       }
     }
 
     startingRef.current = false;
 
     if (stopRequestedRef.current) {
+      // #region agent log
+      dbgLog("E", "startHold:stopRequested", "stop during start", { side });
+      // #endregion
       stopHoldAndTranslate();
       return;
     }
 
-    if (Ctor && useSpeechDuringRecordRef.current) {
+    // Desktop: STT after recorder owns the mic
+    if (!mobileLike && Ctor && useSpeechDuringRecordRef.current) {
+      // #region agent log
+      dbgLog("F", "startHold:stt", "scheduling speech desktop", {
+        recorderStarted,
+        hasCtor: true,
+      });
+      // #endregion
       speechDelayTimerRef.current = window.setTimeout(() => {
         if (holdingRef.current !== side) return;
         beginSpeechRecognition(Ctor, side);
       }, recorderStarted ? 150 : 0);
-    } else if (!recorderStarted) {
+    } else if (!recorderStarted && !Ctor) {
       holdingRef.current = null;
       setHolding(null);
       setMicStatus((s) => (s === "live" ? "idle" : s));
