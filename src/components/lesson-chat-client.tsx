@@ -228,6 +228,7 @@ function ChatPane({
   interim,
   composerText,
   hasPendingAudio,
+  hideComposer,
   dir,
   cardClass,
   empty,
@@ -255,6 +256,7 @@ function ChatPane({
   interim: string;
   composerText: string;
   hasPendingAudio: boolean;
+  hideComposer: boolean;
   dir: "rtl" | "ltr";
   cardClass: string;
   empty: string;
@@ -280,12 +282,12 @@ function ChatPane({
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
-    if (!hasPendingAudio) return;
+    if (hideComposer || !hasPendingAudio) return;
     const el = composerRef.current;
     if (!el) return;
     el.focus();
     el.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [hasPendingAudio]);
+  }, [hasPendingAudio, hideComposer]);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col" dir={dir}>
@@ -327,7 +329,7 @@ function ChatPane({
           )}
       </div>
       <div className="space-y-2 border-t border-line p-2 sm:p-3">
-        {hasPendingAudio ? (
+        {!hideComposer && hasPendingAudio ? (
           <p className="text-center text-[10px] text-olive sm:text-[11px]">
             {audioReadyHint}{" "}
             <button
@@ -339,29 +341,31 @@ function ChatPane({
             </button>
           </p>
         ) : null}
-        <div className="flex gap-1.5 sm:gap-2">
-          <textarea
-            ref={composerRef}
-            value={composerText}
-            onChange={(e) => onComposerChange(e.target.value)}
-            rows={2}
-            placeholder={typePlaceholder}
-            className={`min-w-0 flex-1 rounded-lg border bg-bg px-2 py-1.5 text-xs sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm ${
-              hasPendingAudio
-                ? "border-olive ring-2 ring-olive/30"
-                : "border-line"
-            }`}
-            dir={inputDir}
-          />
-          <button
-            type="button"
-            onClick={onSendText}
-            disabled={!composerText.trim()}
-            className="shrink-0 self-stretch rounded-lg bg-olive px-2 py-1.5 text-xs font-semibold text-card disabled:opacity-50 sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm"
-          >
-            {sendLabel}
-          </button>
-        </div>
+        {!hideComposer ? (
+          <div className="flex gap-1.5 sm:gap-2">
+            <textarea
+              ref={composerRef}
+              value={composerText}
+              onChange={(e) => onComposerChange(e.target.value)}
+              rows={2}
+              placeholder={typePlaceholder}
+              className={`min-w-0 flex-1 rounded-lg border bg-bg px-2 py-1.5 text-xs sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm ${
+                hasPendingAudio
+                  ? "border-olive ring-2 ring-olive/30"
+                  : "border-line"
+              }`}
+              dir={inputDir}
+            />
+            <button
+              type="button"
+              onClick={onSendText}
+              disabled={!composerText.trim()}
+              className="shrink-0 self-stretch rounded-lg bg-olive px-2 py-1.5 text-xs font-semibold text-card disabled:opacity-50 sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm"
+            >
+              {sendLabel}
+            </button>
+          </div>
+        ) : null}
         <p className="text-center text-[10px] text-ink-muted sm:text-[11px]">
           {holdHint}
         </p>
@@ -397,8 +401,10 @@ export function LessonChatClient({
   const [, start] = useTransition();
   const [clearing, setClearing] = useState(false);
   const [touchUi, setTouchUi] = useState(false);
+  const [hideComposer, setHideComposer] = useState(false);
+  const [speechOnlyMode, setSpeechOnlyMode] = useState(false);
   const [micStatus, setMicStatus] = useState<
-    "idle" | "requesting" | "denied" | "dead" | "live"
+    "idle" | "requesting" | "denied" | "dead" | "live" | "listening"
   >("idle");
   const [composerEn, setComposerEn] = useState("");
   const [composerAr, setComposerAr] = useState("");
@@ -420,6 +426,7 @@ export function LessonChatClient({
   const speechDelayTimerRef = useRef<number | undefined>(undefined);
   const recorderMimeRef = useRef("audio/webm;codecs=opus");
   const useSpeechDuringRecordRef = useRef(true);
+  const speechOnlySessionRef = useRef(false);
   const lastTalkSideRef = useRef<ChatLang>("ar");
 
   const leftMessages = useMemo(
@@ -434,8 +441,18 @@ export function LessonChatClient({
   const rightPending = pending.filter((p) => p.originalLang === "ar");
 
   useEffect(() => {
-    setTouchUi(isMobileCapture());
+    const mobile = isMobileCapture();
+    setTouchUi(mobile);
+    setSpeechOnlyMode(mobile);
     useSpeechDuringRecordRef.current = true;
+    const mq = window.matchMedia("(max-width: 767px)");
+    const syncComposer = () => {
+      setHideComposer(mq.matches || isMobileCapture());
+      setSpeechOnlyMode(isMobileCapture());
+    };
+    syncComposer();
+    mq.addEventListener("change", syncComposer);
+    return () => mq.removeEventListener("change", syncComposer);
   }, []);
 
   useEffect(() => {
@@ -536,7 +553,7 @@ export function LessonChatClient({
   ) {
     const payload = text.trim();
     if (!payload) {
-      if (audioBlob && audioBlob.size >= 500) {
+      if (audioBlob && audioBlob.size >= 500 && !speechOnlySessionRef.current) {
         setPendingAudio({ originalLang, blob: audioBlob });
         setError(
           lang === "ar"
@@ -544,11 +561,7 @@ export function LessonChatClient({
             : "Audio ready — type what you said, then press Send to translate",
         );
       } else {
-        setError(
-          lang === "ar"
-            ? "اكتب نصاً في الحقل أو سجّل صوتاً أطول"
-            : "Type text in the box or record longer audio",
-        );
+        setError(t.noSpeechHeard);
       }
       return;
     }
@@ -669,12 +682,18 @@ export function LessonChatClient({
     setHolding(null);
     clearSpeechDelay();
     stopRequestedRef.current = false;
+    const wasSpeechOnly = speechOnlySessionRef.current;
+    speechOnlySessionRef.current = false;
 
     const rec = recognitionRef.current;
     recognitionRef.current = null;
     try {
-      rec?.abort?.();
-      rec?.stop();
+      if (wasSpeechOnly) {
+        rec?.stop();
+      } else {
+        rec?.abort?.();
+        rec?.stop();
+      }
     } catch {
       /* ignore */
     }
@@ -684,25 +703,28 @@ export function LessonChatClient({
     interimRef.current = "";
     setInterim("");
 
-    const typed = getComposer(side).trim();
+    const typed = wasSpeechOnly ? "" : getComposer(side).trim();
     if (speechText && !typed) {
       setComposer(side, speechText);
     }
-    const textForSend = (getComposer(side) || speechText).trim();
+    const textForSend = wasSpeechOnly
+      ? speechText
+      : (getComposer(side) || speechText).trim();
 
     const recorder = mediaRecorderRef.current;
     mediaRecorderRef.current = null;
 
-
     const finish = (audioBlob: Blob | null) => {
       stopMediaTracks();
       stoppingRef.current = false;
-      setMicStatus((s) => (s === "live" || s === "requesting" ? "idle" : s));
+      setMicStatus((s) =>
+        s === "live" || s === "requesting" || s === "listening" ? "idle" : s,
+      );
 
-      sendFinal(textForSend, side, audioBlob);
+      sendFinal(textForSend, side, wasSpeechOnly ? null : audioBlob);
     };
 
-    if (recorder && recorder.state !== "inactive") {
+    if (!wasSpeechOnly && recorder && recorder.state !== "inactive") {
       window.setTimeout(() => {
         void stopRecorderToBlob(recorder).then((blob) => {
           if (blob && blob.size < 500) {
@@ -726,7 +748,7 @@ export function LessonChatClient({
     side: ChatLang,
   ) {
     const rec = new Ctor();
-    rec.lang = side === "ar" ? "ar-EG" : "en-US";
+    rec.lang = side === "ar" ? "ar-SA" : "en-US";
     rec.continuous = true;
     rec.interimResults = true;
     rec.onresult = (ev) => {
@@ -753,8 +775,11 @@ export function LessonChatClient({
           ? lang === "ar"
             ? "اسمح بالميكروفون من المتصفح"
             : "Allow microphone access in the browser"
-          : ev.error,
+          : ev.error === "service-not-allowed" || ev.error === "network"
+            ? t.speechUnsupported
+            : ev.error,
       );
+      if (ev.error === "not-allowed") setMicStatus("denied");
     };
     rec.onend = () => {
       if (holdingRef.current === side) {
@@ -774,15 +799,40 @@ export function LessonChatClient({
   }
 
   async function startHold(side: ChatLang) {
-
     if (holdingRef.current || stoppingRef.current || startingRef.current) {
-
       return;
     }
     setError(null);
     lastTalkSideRef.current = side;
 
     const Ctor = getSpeechRecognition();
+    const mobileLike = touchUi || speechOnlyMode || isMobileCapture();
+
+    // Mobile: Web Speech only — never open MediaRecorder (mic conflict kills STT)
+    if (mobileLike) {
+      if (!Ctor) {
+        setError(t.speechUnsupported);
+        return;
+      }
+      finalsRef.current = "";
+      interimRef.current = "";
+      audioChunksRef.current = [];
+      holdingRef.current = side;
+      setHolding(side);
+      setInterim("");
+      clearSpeechDelay();
+      startingRef.current = true;
+      stopRequestedRef.current = false;
+      speechOnlySessionRef.current = true;
+      setMicStatus("listening");
+      beginSpeechRecognition(Ctor, side);
+      startingRef.current = false;
+      if (stopRequestedRef.current) {
+        stopHoldAndTranslate();
+      }
+      return;
+    }
+
     const canRecord =
       typeof MediaRecorder !== "undefined" &&
       !!navigator.mediaDevices?.getUserMedia;
@@ -805,14 +855,7 @@ export function LessonChatClient({
     clearSpeechDelay();
     startingRef.current = true;
     stopRequestedRef.current = false;
-
-    // Mobile: start STT immediately (same user-gesture turn) so translation can work
-    // even if MediaRecorder fails. Desktop keeps recorder-first then STT.
-    const mobileLike = touchUi || isMobileCapture();
-    if (mobileLike && Ctor && useSpeechDuringRecordRef.current) {
-
-      beginSpeechRecognition(Ctor, side);
-    }
+    speechOnlySessionRef.current = false;
 
     let recorderStarted = false;
 
@@ -832,7 +875,6 @@ export function LessonChatClient({
           .getAudioTracks()
           .filter((tr) => tr.readyState === "live" && tr.enabled);
 
-
         if (!liveTracks.length) {
           stream.getTracks().forEach((tr) => tr.stop());
           setMicStatus("dead");
@@ -850,7 +892,6 @@ export function LessonChatClient({
           stream.getTracks().forEach((tr) => tr.stop());
           startingRef.current = false;
           setMicStatus("idle");
-
           return;
         }
 
@@ -872,8 +913,7 @@ export function LessonChatClient({
         mediaRecorderRef.current = recorder;
         recorder.start();
         recorderStarted = true;
-      } catch (err) {
-
+      } catch {
         setMicStatus("denied");
         setError(t.micDeniedHelp);
         if (!Ctor) {
@@ -883,21 +923,19 @@ export function LessonChatClient({
           stopRequestedRef.current = false;
           return;
         }
-        // Keep holding for speech-only capture
+        // Keep holding for speech-only capture on desktop fallback
       }
     }
 
     startingRef.current = false;
 
     if (stopRequestedRef.current) {
-
       stopHoldAndTranslate();
       return;
     }
 
     // Desktop: STT after recorder owns the mic
-    if (!mobileLike && Ctor && useSpeechDuringRecordRef.current) {
-
+    if (Ctor && useSpeechDuringRecordRef.current) {
       speechDelayTimerRef.current = window.setTimeout(() => {
         if (holdingRef.current !== side) return;
         beginSpeechRecognition(Ctor, side);
@@ -985,11 +1023,11 @@ export function LessonChatClient({
     });
   }
 
-  const holdHint = touchUi ? t.tapToRecord : t.holdToRecord;
+  const holdHint = touchUi || speechOnlyMode ? t.tapToRecord : t.holdToRecord;
   const recordingLabel =
     micStatus === "requesting"
       ? t.requestingMic
-      : touchUi
+      : micStatus === "listening" || touchUi || speechOnlyMode
         ? t.tapToStop
         : t.recording;
   const audioReadyHint = t.typeWhatYouSaid;
@@ -1005,6 +1043,9 @@ export function LessonChatClient({
           <p className="text-xs text-ink-muted">{t.micHintBoth}</p>
           {micStatus === "requesting" && (
             <p className="mt-1 text-xs text-olive">{t.requestingMic}</p>
+          )}
+          {micStatus === "listening" && holding && (
+            <p className="mt-1 text-xs text-olive">{t.listening}</p>
           )}
           {micStatus === "live" && holding && (
             <p className="mt-1 text-xs text-olive">
@@ -1051,12 +1092,17 @@ export function LessonChatClient({
             interim={interim}
             composerText={composerEn}
             hasPendingAudio={pendingAudio?.originalLang === "en"}
+            hideComposer={hideComposer}
             dir="rtl"
             cardClass="rounded-xl border border-line bg-bg px-3 py-2 text-sm"
             empty={t.paneLeftEmpty}
             holdSide="en"
             holdLabel={t.talk}
-            holdActive={holding === "en" || (micStatus === "requesting" && lastTalkSideRef.current === "en")}
+            holdActive={
+              holding === "en" ||
+              ((micStatus === "requesting" || micStatus === "listening") &&
+                lastTalkSideRef.current === "en")
+            }
             holdHint={holdHint}
             recordingLabel={recordingLabel}
             uploadingAudio={t.uploadingAudio}
@@ -1072,7 +1118,13 @@ export function LessonChatClient({
             onStopHold={requestStopHold}
             onDeleteMessage={onDeleteMessage}
             onClearPendingAudio={() => setPendingAudio(null)}
-            onTouchUi={setTouchUi}
+            onTouchUi={(touch) => {
+              setTouchUi(touch);
+              if (touch) {
+                setSpeechOnlyMode(true);
+                setHideComposer(true);
+              }
+            }}
           />
         </div>
         <div className="flex min-h-0 flex-col">
@@ -1086,12 +1138,17 @@ export function LessonChatClient({
             interim={interim}
             composerText={composerAr}
             hasPendingAudio={pendingAudio?.originalLang === "ar"}
+            hideComposer={hideComposer}
             dir="ltr"
             cardClass="rounded-xl border border-olive/25 bg-olive/5 px-3 py-2 text-sm"
             empty={t.paneRightEmpty}
             holdSide="ar"
             holdLabel={t.speakAr}
-            holdActive={holding === "ar" || (micStatus === "requesting" && lastTalkSideRef.current === "ar")}
+            holdActive={
+              holding === "ar" ||
+              ((micStatus === "requesting" || micStatus === "listening") &&
+                lastTalkSideRef.current === "ar")
+            }
             holdHint={holdHint}
             recordingLabel={recordingLabel}
             uploadingAudio={t.uploadingAudio}
@@ -1107,7 +1164,13 @@ export function LessonChatClient({
             onStopHold={requestStopHold}
             onDeleteMessage={onDeleteMessage}
             onClearPendingAudio={() => setPendingAudio(null)}
-            onTouchUi={setTouchUi}
+            onTouchUi={(touch) => {
+              setTouchUi(touch);
+              if (touch) {
+                setSpeechOnlyMode(true);
+                setHideComposer(true);
+              }
+            }}
           />
         </div>
       </div>

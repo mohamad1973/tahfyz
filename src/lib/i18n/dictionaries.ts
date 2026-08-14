@@ -70,6 +70,8 @@ export type Dictionary = {
   micDeniedHelp: string;
   micDeadHelp: string;
   micRetry: string;
+  speechUnsupported: string;
+  noSpeechHeard: string;
   uploadingAudio: string;
   typeWhatYouSaid: string;
   sendWithAudio: string;
@@ -149,22 +151,25 @@ export const dictionaries: Record<Lang, Dictionary> = {
     micHintTeacher:
       "تكلم عربي أو إنجليزي — الترجمة تظهر للطرفين في العمودين.",
     micHintBoth:
-      "اكتب وأرسل للترجمة (موبايل وكمبيوتر). الصوت اختياري: سجّل ثم اكتب النص إن لم يظهر تلقائياً.",
+      "على الموبايل: اضغط تحدث — النص يُترجم تلقائياً. على الكمبيوتر: اضغط باستمرار أو اكتب.",
     paneLeftEmpty: "الكلام الإنجليزي يظهر هنا مترجماً للعربية",
     paneRightEmpty: "الكلام العربي يظهر هنا مترجماً للإنجليزية",
     clearChat: "مسح المحادثة",
     talk: "Talk",
     speakAr: "تحدث",
     holdToRecord: "اضغط باستمرار للتسجيل — ارفع للإرسال والترجمة",
-    tapToRecord: "اضغط للبدء — اضغط مجدداً للإيقاف ثم اكتب النص إن لزم",
-    tapToStop: "يسجّل… اضغط للإيقاف",
+    tapToRecord: "اضغط للتحدث — اضغط مجدداً للإيقاف والترجمة",
+    tapToStop: "يستمع… اضغط للإيقاف",
     recording: "يسجّل… ارفع للإرسال",
     requestingMic: "جاري طلب الميكروفون…",
     micDeniedHelp:
-      "الميكروفون مغلق أو مرفوض. من إعدادات المتصفح اسمح بالميكروفون لهذا الموقع ثم أعد المحاولة. يمكنك الكتابة في الحقل والإرسال.",
+      "الميكروفون مغلق أو مرفوض. من إعدادات المتصفح اسمح بالميكروفون لهذا الموقع ثم أعد المحاولة.",
     micDeadHelp:
       "الميكروفون غير فعّال. تأكد أنه مفتوح في إعدادات الهاتف والمتصفح ثم أعد المحاولة.",
     micRetry: "إعادة محاولة الميكروفون",
+    speechUnsupported:
+      "هذا المتصفح لا يدعم التحدث. افتح الموقع في Chrome على أندرويد.",
+    noSpeechHeard: "لم نسمع كلاماً — حاول مرة أخرى وتحدث بوضوح.",
     uploadingAudio: "يرفع الصوت…",
     typeWhatYouSaid: "الصوت جاهز — اكتب ما قلته هنا ثم إرسال (يُترجم فوراً)",
     sendWithAudio: "إرسال مع الصوت",
@@ -246,22 +251,25 @@ export const dictionaries: Record<Lang, Dictionary> = {
     micHintTeacher:
       "Speak Arabic or English — translations show for both people in both columns.",
     micHintBoth:
-      "Type and Send to translate (phone and desktop). Voice is optional: record, then type the text if it does not appear automatically.",
+      "On mobile: tap Talk — speech translates automatically. On desktop: hold to record or type.",
     paneLeftEmpty: "English speech appears here translated into Arabic",
     paneRightEmpty: "Arabic speech appears here translated into English",
     clearChat: "Clear chat",
     talk: "Talk",
     speakAr: "تحدث",
     holdToRecord: "Hold to record — release to send and translate",
-    tapToRecord: "Tap to start — tap again to stop, then type text if needed",
-    tapToStop: "Recording… tap to stop",
+    tapToRecord: "Tap to speak — tap again to stop and translate",
+    tapToStop: "Listening… tap to stop",
     recording: "Recording… release to send",
     requestingMic: "Requesting microphone…",
     micDeniedHelp:
-      "Microphone blocked. Allow mic for this site in browser settings, then retry. You can still type and send.",
+      "Microphone blocked. Allow mic for this site in browser settings, then retry.",
     micDeadHelp:
       "Microphone is not active. Enable it in phone/browser settings, then retry.",
     micRetry: "Retry microphone",
+    speechUnsupported:
+      "This browser cannot speak-to-text. Open the site in Chrome on Android.",
+    noSpeechHeard: "No speech heard — try again and speak clearly.",
     uploadingAudio: "Uploading audio…",
     typeWhatYouSaid: "Audio ready — type what you said here, then Send (translates instantly)",
     sendWithAudio: "Send with audio",
