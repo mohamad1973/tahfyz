@@ -79,39 +79,6 @@ function byNewest(a: ChatMessage, b: ChatMessage) {
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 }
 
-// #region agent log
-function dbgLog(
-  hypothesisId: string,
-  location: string,
-  message: string,
-  data: Record<string, unknown> = {},
-) {
-  const payload = {
-    sessionId: "362d99",
-    runId: "post-fix",
-    hypothesisId,
-    location,
-    message,
-    data,
-    timestamp: Date.now(),
-  };
-  const body = JSON.stringify(payload);
-  fetch("http://127.0.0.1:7455/ingest/bf789d1d-73ab-44fd-9ed0-8caeb6b2dbaf", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "362d99",
-    },
-    body,
-  }).catch(() => {});
-  fetch("/api/debug-log", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body,
-  }).catch(() => {});
-}
-// #endregion
-
 function messagesFingerprint(list: ChatMessage[]) {
   return list
     .map(
@@ -212,13 +179,6 @@ function HoldButton({
           : "bg-olive text-card hover:bg-olive-deep"
       }`}
       onPointerDown={(e) => {
-        // #region agent log
-        dbgLog("A", "HoldButton:onPointerDown", "pointerdown", {
-          side,
-          pointerType: e.pointerType,
-          active,
-        });
-        // #endregion
         // Touch/pen: tap-to-toggle via click — avoid hold race (down+up before mic opens)
         if (e.pointerType === "touch" || e.pointerType === "pen") {
           touchModeRef.current = true;
@@ -232,13 +192,6 @@ function HoldButton({
         onStart(side);
       }}
       onPointerUp={(e) => {
-        // #region agent log
-        dbgLog("A", "HoldButton:onPointerUp", "pointerup", {
-          side,
-          pointerType: e.pointerType,
-          active,
-        });
-        // #endregion
         if (e.pointerType === "touch" || e.pointerType === "pen") return;
         e.preventDefault();
         try {
@@ -255,13 +208,6 @@ function HoldButton({
         onStop();
       }}
       onClick={(e) => {
-        // #region agent log
-        dbgLog("B", "HoldButton:onClick", "click", {
-          side,
-          touchMode: touchModeRef.current,
-          active,
-        });
-        // #endregion
         // Only touch/pen toggles on click; mouse uses hold and must ignore click
         if (!touchModeRef.current) return;
         e.preventDefault();
@@ -573,28 +519,22 @@ export function LessonChatClient({
     originalLang: ChatLang,
     audioBlob: Blob | null,
   ) {
-    const payload = text.trim();
-    if (!payload) {
-      if (audioBlob && audioBlob.size >= 500) {
-        setPendingAudio({ originalLang, blob: audioBlob });
-        setError(
-          lang === "ar"
-            ? "الصوت جاهز — اكتب النص في الحقل ثم اضغط إرسال"
-            : "Audio ready — type text in the box, then press Send",
-        );
-      } else {
-        setError(
-          lang === "ar"
-            ? "اكتب نصاً في الحقل أو سجّل صوتاً أطول"
-            : "Type text in the box or record longer audio",
-        );
-      }
+    const initialText = text.trim();
+    if (!initialText && !(audioBlob && audioBlob.size >= 500)) {
+      setError(
+        lang === "ar"
+          ? "اكتب نصاً في الحقل أو سجّل صوتاً أطول"
+          : "Type text in the box or record longer audio",
+      );
       return;
     }
 
+    const displayText =
+      initialText ||
+      (lang === "ar" ? t.transcribingAudio : t.transcribingAudio);
     const tempId = `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     setPending((prev) => [
-      { id: tempId, originalLang, text: payload },
+      { id: tempId, originalLang, text: displayText },
       ...prev,
     ]);
     setInterim("");
@@ -604,15 +544,19 @@ export function LessonChatClient({
     sendQueueRef.current = sendQueueRef.current.then(async () => {
       setError(null);
       let audioUrl: string | undefined;
+      let payload = initialText;
+
       if (audioBlob && audioBlob.size >= 500) {
         try {
           audioUrl = await uploadAudioBlob(audioBlob);
         } catch (e) {
+          setPending((prev) => prev.filter((p) => p.id !== tempId));
           setError(
             lang === "ar"
               ? `فشل رفع الصوت: ${e instanceof Error ? e.message : "خطأ"}`
               : `Audio upload failed: ${e instanceof Error ? e.message : "error"}`,
           );
+          return;
         }
       } else if (audioBlob && audioBlob.size > 0 && audioBlob.size < 500) {
         setError(
@@ -621,6 +565,61 @@ export function LessonChatClient({
             : "Recording too short — record longer while speaking",
         );
       }
+
+      // Mobile / no Web Speech text: transcribe on server via Whisper
+      if (!payload && audioUrl) {
+        try {
+          const tr = await fetch("/api/chat/transcribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              audioUrl,
+              language: originalLang,
+            }),
+          });
+          const data = (await tr.json()) as { text?: string; error?: string };
+          if (!tr.ok || !data.text?.trim()) {
+            setPending((prev) => prev.filter((p) => p.id !== tempId));
+            setPendingAudio({ originalLang, blob: audioBlob! });
+            setError(
+              data.error ||
+                (lang === "ar"
+                  ? "تعذر تحويل الصوت لنص — اكتب في الحقل ثم أرسل"
+                  : "Could not transcribe audio — type in the box then send"),
+            );
+            return;
+          }
+          payload = data.text.trim();
+          setPending((prev) =>
+            prev.map((p) =>
+              p.id === tempId ? { ...p, text: payload } : p,
+            ),
+          );
+        } catch {
+          setPending((prev) => prev.filter((p) => p.id !== tempId));
+          if (audioBlob) setPendingAudio({ originalLang, blob: audioBlob });
+          setError(
+            lang === "ar"
+              ? "تعذر تحويل الصوت لنص — اكتب في الحقل ثم أرسل"
+              : "Could not transcribe audio — type in the box then send",
+          );
+          return;
+        }
+      }
+
+      if (!payload) {
+        setPending((prev) => prev.filter((p) => p.id !== tempId));
+        if (audioBlob && audioBlob.size >= 500) {
+          setPendingAudio({ originalLang, blob: audioBlob });
+          setError(
+            lang === "ar"
+              ? "الصوت جاهز — اكتب النص في الحقل ثم اضغط إرسال"
+              : "Audio ready — type text in the box, then press Send",
+          );
+        }
+        return;
+      }
+
       const res = await sendChatMessageAction({
         threadId,
         text: payload,
@@ -691,12 +690,7 @@ export function LessonChatClient({
   }
 
   function requestStopHold() {
-    // #region agent log
-    dbgLog("E", "requestStopHold", "stop requested", {
-      starting: startingRef.current,
-      holding: holdingRef.current,
-    });
-    // #endregion
+
     if (startingRef.current) {
       stopRequestedRef.current = true;
       return;
@@ -737,28 +731,12 @@ export function LessonChatClient({
     const recorder = mediaRecorderRef.current;
     mediaRecorderRef.current = null;
 
-    // #region agent log
-    dbgLog("F", "stopHoldAndTranslate", "stopping", {
-      side,
-      speechLen: speechText.length,
-      typedLen: typed.length,
-      textForSendLen: textForSend.length,
-      hasRecorder: !!recorder,
-      recorderState: recorder?.state ?? null,
-      chunks: audioChunksRef.current.length,
-    });
-    // #endregion
 
     const finish = (audioBlob: Blob | null) => {
       stopMediaTracks();
       stoppingRef.current = false;
       setMicStatus((s) => (s === "live" || s === "requesting" ? "idle" : s));
-      // #region agent log
-      dbgLog("F", "stopHold:finish", "finish sendFinal", {
-        blobSize: audioBlob?.size ?? 0,
-        textForSendLen: textForSend.length,
-      });
-      // #endregion
+
       sendFinal(textForSend, side, audioBlob);
     };
 
@@ -834,26 +812,9 @@ export function LessonChatClient({
   }
 
   async function startHold(side: ChatLang) {
-    // #region agent log
-    dbgLog("C", "startHold:entry", "startHold called", {
-      side,
-      holding: holdingRef.current,
-      stopping: stoppingRef.current,
-      starting: startingRef.current,
-      hasSpeech: !!getSpeechRecognition(),
-      hasMR: typeof MediaRecorder !== "undefined",
-      secure: typeof window !== "undefined" ? window.isSecureContext : null,
-      touchUi,
-    });
-    // #endregion
+
     if (holdingRef.current || stoppingRef.current || startingRef.current) {
-      // #region agent log
-      dbgLog("C", "startHold:blocked", "early return busy", {
-        holding: holdingRef.current,
-        stopping: stoppingRef.current,
-        starting: startingRef.current,
-      });
-      // #endregion
+
       return;
     }
     setError(null);
@@ -887,9 +848,7 @@ export function LessonChatClient({
     // even if MediaRecorder fails. Desktop keeps recorder-first then STT.
     const mobileLike = touchUi || isMobileCapture();
     if (mobileLike && Ctor && useSpeechDuringRecordRef.current) {
-      // #region agent log
-      dbgLog("F", "startHold:sttImmediate", "start STT before gum", { side });
-      // #endregion
+
       beginSpeechRecognition(Ctor, side);
     }
 
@@ -911,13 +870,6 @@ export function LessonChatClient({
           .getAudioTracks()
           .filter((tr) => tr.readyState === "live" && tr.enabled);
 
-        // #region agent log
-        dbgLog("D", "startHold:gum", "getUserMedia ok", {
-          tracks: stream.getAudioTracks().length,
-          live: liveTracks.length,
-          labels: stream.getAudioTracks().map((t) => t.readyState),
-        });
-        // #endregion
 
         if (!liveTracks.length) {
           stream.getTracks().forEach((tr) => tr.stop());
@@ -936,11 +888,7 @@ export function LessonChatClient({
           stream.getTracks().forEach((tr) => tr.stop());
           startingRef.current = false;
           setMicStatus("idle");
-          // #region agent log
-          dbgLog("E", "startHold:aborted", "holding cleared during gum", {
-            side,
-          });
-          // #endregion
+
           return;
         }
 
@@ -963,12 +911,7 @@ export function LessonChatClient({
         recorder.start();
         recorderStarted = true;
       } catch (err) {
-        // #region agent log
-        dbgLog("D", "startHold:gumFail", "getUserMedia failed", {
-          err: err instanceof Error ? err.name : String(err),
-          message: err instanceof Error ? err.message : String(err),
-        });
-        // #endregion
+
         setMicStatus("denied");
         setError(t.micDeniedHelp);
         if (!Ctor) {
@@ -985,21 +928,14 @@ export function LessonChatClient({
     startingRef.current = false;
 
     if (stopRequestedRef.current) {
-      // #region agent log
-      dbgLog("E", "startHold:stopRequested", "stop during start", { side });
-      // #endregion
+
       stopHoldAndTranslate();
       return;
     }
 
     // Desktop: STT after recorder owns the mic
     if (!mobileLike && Ctor && useSpeechDuringRecordRef.current) {
-      // #region agent log
-      dbgLog("F", "startHold:stt", "scheduling speech desktop", {
-        recorderStarted,
-        hasCtor: true,
-      });
-      // #endregion
+
       speechDelayTimerRef.current = window.setTimeout(() => {
         if (holdingRef.current !== side) return;
         beginSpeechRecognition(Ctor, side);

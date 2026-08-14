@@ -71,6 +71,7 @@ export type Dictionary = {
   micDeadHelp: string;
   micRetry: string;
   uploadingAudio: string;
+  transcribingAudio: string;
   typeWhatYouSaid: string;
   sendWithAudio: string;
   deleteLine: string;
@@ -166,6 +167,7 @@ export const dictionaries: Record<Lang, Dictionary> = {
       "الميكروفون غير فعّال. تأكد أنه مفتوح في إعدادات الهاتف والمتصفح ثم أعد المحاولة.",
     micRetry: "إعادة محاولة الميكروفون",
     uploadingAudio: "يرفع الصوت…",
+    transcribingAudio: "يحوّل الصوت إلى نص…",
     typeWhatYouSaid: "اكتب ما قلته ثم أرسل مع الصوت",
     sendWithAudio: "إرسال مع الصوت",
     deleteLine: "حذف",
@@ -263,6 +265,7 @@ export const dictionaries: Record<Lang, Dictionary> = {
       "Microphone is not active. Enable it in phone/browser settings, then retry.",
     micRetry: "Retry microphone",
     uploadingAudio: "Uploading audio…",
+    transcribingAudio: "Converting speech to text…",
     typeWhatYouSaid: "Type what you said, then send with audio",
     sendWithAudio: "Send with audio",
     deleteLine: "Delete",
