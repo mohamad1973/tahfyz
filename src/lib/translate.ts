@@ -1,3 +1,5 @@
+import { protectTajweedTerms } from "./tajweed-glossary";
+
 export type ChatLang = "en" | "ar";
 
 function hasArabicScript(text: string): boolean {
@@ -79,24 +81,26 @@ export async function translateText(
   if (!trimmed) return "";
   if (from === to) return trimmed;
 
+  const { masked, restore } = protectTajweedTerms(trimmed, from, to);
+
   try {
-    const first = await translateMyMemory(trimmed, from, to);
-    if (first && !translationLooksWrong(trimmed, first, from, to)) {
-      return first;
+    const first = await translateMyMemory(masked, from, to);
+    if (first && !translationLooksWrong(masked, first, from, to)) {
+      return restore(first);
     }
   } catch {
     /* try fallback */
   }
 
   try {
-    const second = await translateGtx(trimmed, from, to);
-    if (second && !translationLooksWrong(trimmed, second, from, to)) {
-      return second;
+    const second = await translateGtx(masked, from, to);
+    if (second && !translationLooksWrong(masked, second, from, to)) {
+      return restore(second);
     }
-    if (second) return second;
+    if (second) return restore(second);
   } catch {
     /* fall through */
   }
 
-  return trimmed;
+  return restore(trimmed);
 }

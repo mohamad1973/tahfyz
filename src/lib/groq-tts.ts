@@ -1,6 +1,8 @@
 import { put } from "@vercel/blob";
 import type { ChatLang } from "./translate";
 
+export const GROQ_TERMS_ERROR = "GROQ_TERMS";
+
 const GROQ_SPEECH_URL = "https://api.groq.com/openai/v1/audio/speech";
 /** Orpheus input limit per request */
 const CHUNK_CHARS = 200;
@@ -147,6 +149,9 @@ async function synthesizeChunk(
       if (errBody.error?.message) detail = errBody.error.message;
     } catch {
       /* ignore */
+    }
+    if (/terms acceptance/i.test(detail)) {
+      return { ok: false, error: GROQ_TERMS_ERROR };
     }
     return { ok: false, error: detail };
   }

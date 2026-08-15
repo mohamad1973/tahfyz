@@ -89,6 +89,32 @@ function messagesFingerprint(list: ChatMessage[]) {
     .join("\n");
 }
 
+function speakWithBrowser(text: string, lang: ChatLang): boolean {
+  if (typeof window === "undefined") return false;
+  const synth = window.speechSynthesis;
+  if (!synth) return false;
+  try {
+    synth.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = lang === "ar" ? "ar-SA" : "en-US";
+    const voices = synth.getVoices();
+    const match = voices.find((v) =>
+      lang === "ar"
+        ? v.lang.toLowerCase().startsWith("ar")
+        : v.lang.toLowerCase().startsWith("en"),
+    );
+    if (match) utterance.voice = match;
+    synth.speak(utterance);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isGroqTermsError(error: string): boolean {
+  return error === "GROQ_TERMS" || /terms acceptance/i.test(error);
+}
+
 function MessageCard({
   id,
   originalText,
@@ -104,6 +130,7 @@ function MessageCard({
   listenLabel,
   listeningLabel,
   listenErrorLabel,
+  listenTermsLabel,
   isSaved,
   onDelete,
   onSave,
@@ -123,6 +150,7 @@ function MessageCard({
   listenLabel: string;
   listeningLabel: string;
   listenErrorLabel: string;
+  listenTermsLabel: string;
   isSaved: boolean;
   onDelete: (messageId: string) => void;
   onSave: (messageId: string) => void;
@@ -173,7 +201,13 @@ function MessageCard({
     const res = await onSpeak(id);
     setTtsPending(false);
     if (!res.ok) {
-      setTtsError(res.error?.trim() || listenErrorLabel);
+      const translatedLang: ChatLang = originalLang === "en" ? "ar" : "en";
+      if (speakWithBrowser(translatedText, translatedLang)) return;
+      setTtsError(
+        isGroqTermsError(res.error || "")
+          ? listenTermsLabel
+          : res.error?.trim() || listenErrorLabel,
+      );
       return;
     }
     playWhenReadyRef.current = true;
@@ -360,6 +394,7 @@ function ChatPane({
   listenLabel,
   listeningLabel,
   listenErrorLabel,
+  listenTermsLabel,
   savedIds,
   onComposerChange,
   onSendText,
@@ -395,6 +430,7 @@ function ChatPane({
   listenLabel: string;
   listeningLabel: string;
   listenErrorLabel: string;
+  listenTermsLabel: string;
   savedIds: Set<string>;
   onComposerChange: (text: string) => void;
   onSendText: () => void;
@@ -455,6 +491,7 @@ function ChatPane({
             listenLabel={listenLabel}
             listeningLabel={listeningLabel}
             listenErrorLabel={listenErrorLabel}
+            listenTermsLabel={listenTermsLabel}
             isSaved={savedIds.has(m.id)}
             onDelete={onDeleteMessage}
             onSave={onSaveMessage}
@@ -1223,6 +1260,7 @@ export function LessonChatClient({
             listenLabel={t.listenTranslation}
             listeningLabel={t.generatingSpeech}
             listenErrorLabel={t.speechFailed}
+            listenTermsLabel={t.speechTermsNeeded}
             savedIds={savedIds}
             onComposerChange={(text) => onComposerEdit("en", text)}
             onSendText={() => sendComposer("en")}
@@ -1269,6 +1307,7 @@ export function LessonChatClient({
             listenLabel={t.listenTranslation}
             listeningLabel={t.generatingSpeech}
             listenErrorLabel={t.speechFailed}
+            listenTermsLabel={t.speechTermsNeeded}
             savedIds={savedIds}
             onComposerChange={(text) => onComposerEdit("ar", text)}
             onSendText={() => sendComposer("ar")}

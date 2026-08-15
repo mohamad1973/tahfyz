@@ -79,6 +79,7 @@ export type Dictionary = {
   listenTranslation: string;
   generatingSpeech: string;
   speechFailed: string;
+  speechTermsNeeded: string;
   deleteLine: string;
   resetPassword: string;
   email: string;
@@ -196,6 +197,8 @@ export const dictionaries: Record<Lang, Dictionary> = {
     listenTranslation: "استمع للترجمة",
     generatingSpeech: "جاري القراءة…",
     speechFailed: "تعذّر قراءة الترجمة",
+    speechTermsNeeded:
+      "قراءة Groq تحتاج موافقة المسؤول على شروط النموذج في حساب Groq.",
     deleteLine: "حذف",
     resetPassword: "إعادة تعيين كلمة المرور",
     email: "البريد الإلكتروني",
@@ -317,6 +320,8 @@ export const dictionaries: Record<Lang, Dictionary> = {
     listenTranslation: "Listen to translation",
     generatingSpeech: "Generating speech…",
     speechFailed: "Could not read translation",
+    speechTermsNeeded:
+      "Groq reading needs the account admin to accept the model terms in Groq Console.",
     deleteLine: "Delete",
     resetPassword: "Reset password",
     email: "Email",
