@@ -42,7 +42,7 @@ import {
   usernameFromEmail,
   verifyPassword,
 } from "./utils";
-import { translateText, type ChatLang } from "./translate";
+import { detectChatLang, translateText, type ChatLang } from "./translate";
 import { transcribeAudioUrl } from "./groq-stt";
 import { generateTranslatedSpeechUrl } from "./groq-tts";
 import { buildCalendarWeek, buildOpenSlots } from "./slots";
@@ -411,7 +411,7 @@ export async function requestPasswordResetAction(formData: FormData) {
       expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
     });
     const appUrl =
-      process.env.NEXT_PUBLIC_APP_URL || "https://tahfyz.vercel.app";
+      process.env.NEXT_PUBLIC_APP_URL || "https://tahfyz.com";
     const { sendPasswordResetEmail } = await import("./email");
     const sent = await sendPasswordResetEmail({
       to: user.email,
@@ -881,10 +881,7 @@ export async function sendChatMessageAction(input: {
   const text = input.text.trim();
   if (!text) return { ok: false as const, error: "Empty message" };
 
-  let originalLang: ChatLang = input.originalLang;
-  if (originalLang !== "en" && originalLang !== "ar") {
-    originalLang = user.role === "teacher" ? "ar" : "en";
-  }
+  const originalLang: ChatLang = detectChatLang(text);
   const translatedLang: ChatLang = originalLang === "en" ? "ar" : "en";
   const translatedText = await translateText(text, originalLang, translatedLang);
 

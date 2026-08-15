@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { upload } from "@vercel/blob/client";
-import { Volume2 } from "lucide-react";
+import { ArrowUp, Mic, Pencil, Volume2 } from "lucide-react";
 import type { ChatMessage } from "@/lib/types";
 import type { ChatLang } from "@/lib/translate";
 import {
@@ -299,7 +299,7 @@ function MessageCard({
   );
 }
 
-function HoldButton({
+function MicHoldButton({
   side,
   label,
   active,
@@ -321,10 +321,12 @@ function HoldButton({
   return (
     <button
       type="button"
-      className={`w-full select-none rounded-xl px-2 py-3 text-sm font-semibold touch-manipulation sm:px-4 sm:py-3 sm:text-base ${
+      aria-label={active ? recordingLabel : label}
+      title={active ? recordingLabel : label}
+      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border shadow-sm touch-manipulation select-none ${
         active
-          ? "bg-danger text-card"
-          : "bg-olive text-card hover:bg-olive-deep"
+          ? "border-danger bg-danger text-card"
+          : "border-olive/30 bg-card text-olive hover:bg-olive/10"
       }`}
       onPointerDown={(e) => {
         // Touch/pen: tap-to-toggle via click — avoid hold race (down+up before mic opens)
@@ -364,12 +366,13 @@ function HoldButton({
       }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      {active ? recordingLabel : label}
+      <Mic className="h-5 w-5" aria-hidden />
     </button>
   );
 }
 
 function ChatPane({
+  title,
   items,
   pendingItems,
   showInterim,
@@ -387,6 +390,7 @@ function ChatPane({
   uploadingAudio,
   typePlaceholder,
   sendLabel,
+  writeLabel,
   audioReadyHint,
   deleteLabel,
   saveLabel,
@@ -406,6 +410,7 @@ function ChatPane({
   onClearPendingAudio,
   onTouchUi,
 }: {
+  title: string;
   items: ChatMessage[];
   pendingItems: PendingBubble[];
   showInterim: boolean;
@@ -423,6 +428,7 @@ function ChatPane({
   uploadingAudio: string;
   typePlaceholder: string;
   sendLabel: string;
+  writeLabel: string;
   audioReadyHint: string;
   deleteLabel: string;
   saveLabel: string;
@@ -446,18 +452,110 @@ function ChatPane({
 }) {
   const inputDir = holdSide === "ar" ? "rtl" : "ltr";
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const canSend = composerText.trim().length > 0;
+  const showBox = composerOpen || hasPendingAudio || canSend;
 
   useEffect(() => {
-    if (!hasPendingAudio) return;
-    const el = composerRef.current;
-    if (!el) return;
-    el.focus();
-    el.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [hasPendingAudio]);
+    if (!showBox) return;
+    composerRef.current?.focus();
+  }, [showBox, hasPendingAudio]);
+
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = 0;
+  }, [items[0]?.id, pendingItems[0]?.id, showInterim, interim]);
+
+  function onWriteOrSend() {
+    if (canSend) {
+      onSendText();
+      setComposerOpen(false);
+      return;
+    }
+    setComposerOpen((open) => !open);
+  }
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col" dir={dir}>
-      <div className="flex-1 space-y-2 overflow-y-auto px-2 py-2 sm:px-3 sm:py-3">
+    <section className="flex min-h-0 flex-1 flex-col">
+      <header className="shrink-0 space-y-2 border-b border-line bg-bg-deep/50 px-2 py-2 sm:px-3">
+        <h2 className="font-display text-center text-sm font-semibold text-olive sm:text-base">
+          {title}
+        </h2>
+        <div className="flex items-center justify-center gap-2">
+          <MicHoldButton
+            side={holdSide}
+            label={holdLabel}
+            active={holdActive}
+            recordingLabel={recordingLabel}
+            onStart={onStartHold}
+            onStop={onStopHold}
+            onTouchUi={onTouchUi}
+          />
+          <button
+            type="button"
+            onClick={onWriteOrSend}
+            aria-label={canSend ? sendLabel : writeLabel}
+            title={canSend ? sendLabel : writeLabel}
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border shadow-sm ${
+              canSend
+                ? "border-olive bg-olive text-card hover:bg-olive-deep"
+                : showBox
+                  ? "border-olive/40 bg-card text-sand ring-2 ring-olive/30 hover:bg-olive/10"
+                  : "border-olive/30 bg-card text-sand hover:bg-olive/10"
+            }`}
+          >
+            {canSend ? (
+              <ArrowUp className="h-5 w-5" aria-hidden />
+            ) : (
+              <Pencil className="h-5 w-5" aria-hidden />
+            )}
+          </button>
+        </div>
+        {hasPendingAudio ? (
+          <p className="text-center text-[10px] text-olive sm:text-[11px]">
+            {audioReadyHint}{" "}
+            <button
+              type="button"
+              className="underline"
+              onClick={onClearPendingAudio}
+            >
+              ×
+            </button>
+          </p>
+        ) : null}
+        {showBox ? (
+          <textarea
+            ref={composerRef}
+            value={composerText}
+            onChange={(e) => onComposerChange(e.target.value)}
+            rows={2}
+            placeholder={typePlaceholder}
+            className={`w-full rounded-lg border bg-card px-2 py-1.5 text-xs sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm ${
+              hasPendingAudio
+                ? "border-olive ring-2 ring-olive/30"
+                : "border-line focus:border-olive focus:ring-2 focus:ring-olive/30"
+            }`}
+            dir={inputDir}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && canSend) {
+                e.preventDefault();
+                onSendText();
+                setComposerOpen(false);
+              }
+            }}
+          />
+        ) : null}
+        {holdActive ? (
+          <p className="text-center text-[10px] text-ink-muted sm:text-[11px]">
+            {holdHint}
+          </p>
+        ) : null}
+      </header>
+      <div
+        ref={listRef}
+        className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 py-2 sm:px-3 sm:py-3"
+        dir={dir}
+      >
         {showInterim && interim && (
           <div className="rounded-xl border border-dashed border-line px-3 py-2 text-sm text-ink-muted">
             … {interim}
@@ -503,55 +601,6 @@ function ChatPane({
           !(showInterim && interim) && (
             <p className="text-center text-xs text-ink-muted">{empty}</p>
           )}
-      </div>
-      <div className="space-y-2 border-t border-line p-2 sm:p-3">
-        {hasPendingAudio ? (
-          <p className="text-center text-[10px] text-olive sm:text-[11px]">
-            {audioReadyHint}{" "}
-            <button
-              type="button"
-              className="underline"
-              onClick={onClearPendingAudio}
-            >
-              ×
-            </button>
-          </p>
-        ) : null}
-        <div className="flex gap-1.5 sm:gap-2">
-          <textarea
-            ref={composerRef}
-            value={composerText}
-            onChange={(e) => onComposerChange(e.target.value)}
-            rows={2}
-            placeholder={typePlaceholder}
-            className={`min-w-0 flex-1 rounded-lg border bg-bg px-2 py-1.5 text-xs sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm ${
-              hasPendingAudio
-                ? "border-olive ring-2 ring-olive/30"
-                : "border-line"
-            }`}
-            dir={inputDir}
-          />
-          <button
-            type="button"
-            onClick={onSendText}
-            disabled={!composerText.trim()}
-            className="shrink-0 self-stretch rounded-lg bg-olive px-2 py-1.5 text-xs font-semibold text-card disabled:opacity-50 sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm"
-          >
-            {sendLabel}
-          </button>
-        </div>
-        <p className="text-center text-[10px] text-ink-muted sm:text-[11px]">
-          {holdHint}
-        </p>
-        <HoldButton
-          side={holdSide}
-          label={holdLabel}
-          active={holdActive}
-          recordingLabel={recordingLabel}
-          onStart={onStartHold}
-          onStop={onStopHold}
-          onTouchUi={onTouchUi}
-        />
       </div>
     </section>
   );
@@ -1227,14 +1276,12 @@ export function LessonChatClient({
         dir="ltr"
       >
         <div className="flex min-h-0 flex-col border-r border-line">
-          <header className="border-b border-line bg-bg-deep/50 px-2 py-2 text-center text-[11px] font-semibold text-ink-muted sm:px-3 sm:text-xs">
-            English → العربية
-          </header>
           <ChatPane
+            title={t.paneStudent}
             items={leftMessages}
             pendingItems={leftPending}
             showInterim={holding === "en" || transcribingSide === "en"}
-            interim={interim}
+            interim={holding === "en" || transcribingSide === "en" ? interim : ""}
             composerText={composerEn}
             hasPendingAudio={pendingAudio?.originalLang === "en"}
             dir="rtl"
@@ -1253,6 +1300,7 @@ export function LessonChatClient({
             sendLabel={
               pendingAudio?.originalLang === "en" ? t.sendWithAudio : t.send
             }
+            writeLabel={t.writeMessage}
             audioReadyHint={audioReadyHint}
             deleteLabel={t.deleteLine}
             saveLabel={t.saveLine}
@@ -1274,14 +1322,12 @@ export function LessonChatClient({
           />
         </div>
         <div className="flex min-h-0 flex-col">
-          <header className="border-b border-line bg-bg-deep/50 px-2 py-2 text-center text-[11px] font-semibold text-ink-muted sm:px-3 sm:text-xs">
-            العربية → English
-          </header>
           <ChatPane
+            title={t.paneSheikh}
             items={rightMessages}
             pendingItems={rightPending}
             showInterim={holding === "ar" || transcribingSide === "ar"}
-            interim={interim}
+            interim={holding === "ar" || transcribingSide === "ar" ? interim : ""}
             composerText={composerAr}
             hasPendingAudio={pendingAudio?.originalLang === "ar"}
             dir="ltr"
@@ -1300,6 +1346,7 @@ export function LessonChatClient({
             sendLabel={
               pendingAudio?.originalLang === "ar" ? t.sendWithAudio : t.send
             }
+            writeLabel={t.writeMessage}
             audioReadyHint={audioReadyHint}
             deleteLabel={t.deleteLine}
             saveLabel={t.saveLine}

@@ -59,6 +59,9 @@ export type Dictionary = {
   micHintBoth: string;
   paneLeftEmpty: string;
   paneRightEmpty: string;
+  paneStudent: string;
+  paneSheikh: string;
+  writeMessage: string;
   clearChat: string;
   talk: string;
   speakAr: string;
@@ -174,6 +177,9 @@ export const dictionaries: Record<Lang, Dictionary> = {
       "سجّل بالصوت — بعد التوقّف يُحوَّل الكلام إلى نص ثم يُترجم تلقائياً (معلم وطالب).",
     paneLeftEmpty: "الكلام الإنجليزي يظهر هنا مترجماً للعربية",
     paneRightEmpty: "الكلام العربي يظهر هنا مترجماً للإنجليزية",
+    paneStudent: "الطالب",
+    paneSheikh: "الشيخ",
+    writeMessage: "كتابة رسالة",
     clearChat: "حذف من السيرفر",
     talk: "Talk",
     speakAr: "تحدث",
@@ -297,6 +303,9 @@ export const dictionaries: Record<Lang, Dictionary> = {
       "Record your voice — after you stop, speech becomes text then translates automatically (teacher and student).",
     paneLeftEmpty: "English speech appears here translated into Arabic",
     paneRightEmpty: "Arabic speech appears here translated into English",
+    paneStudent: "Student",
+    paneSheikh: "Sheikh",
+    writeMessage: "Write a message",
     clearChat: "Delete from server",
     talk: "Talk",
     speakAr: "تحدث",

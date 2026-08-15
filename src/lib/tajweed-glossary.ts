@@ -2,6 +2,32 @@ type ChatLang = "en" | "ar";
 
 /** Longer phrases first so they match before shorter pieces. */
 const PAIRS: Array<{ ar: string; en: string }> = [
+  {
+    ar: "السلام عليكم ورحمة الله وبركاته",
+    en: "Peace be upon you and the mercy of Allah and His blessings",
+  },
+  {
+    ar: "السلام عليكم ورحمه الله وبركاته",
+    en: "Peace be upon you and the mercy of Allah and His blessings",
+  },
+  {
+    ar: "وعليكم السلام ورحمة الله وبركاته",
+    en: "And peace be upon you and the mercy of Allah and His blessings",
+  },
+  {
+    ar: "وعليكم السلام ورحمه الله وبركاته",
+    en: "And peace be upon you and the mercy of Allah and His blessings",
+  },
+  {
+    ar: "السلام عليكم ورحمة الله",
+    en: "Peace be upon you and the mercy of Allah",
+  },
+  {
+    ar: "السلام عليكم ورحمه الله",
+    en: "Peace be upon you and the mercy of Allah",
+  },
+  { ar: "وعليكم السلام", en: "And peace be upon you" },
+  { ar: "السلام عليكم", en: "Peace be upon you" },
   { ar: "إدغام بغنة", en: "Idgham with ghunnah" },
   { ar: "إدغام بلا غنة", en: "Idgham without ghunnah" },
   { ar: "نون ساكنة", en: "Noon sakinah" },

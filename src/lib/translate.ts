@@ -6,38 +6,55 @@ function hasArabicScript(text: string): boolean {
   return /[\u0600-\u06FF]/.test(text);
 }
 
-async function translateMyMemory(
-  text: string,
-  from: ChatLang,
-  to: ChatLang,
-): Promise<string | null> {
-  const url = new URL("https://api.mymemory.translated.net/get");
-  url.searchParams.set("q", text.slice(0, 450));
-  url.searchParams.set("langpair", `${from}|${to}`);
-  const res = await fetch(url.toString(), {
-    next: { revalidate: 0 },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) return null;
-  const data = (await res.json()) as {
-    responseData?: { translatedText?: string };
-    responseStatus?: number;
-  };
-  const out = data.responseData?.translatedText?.trim();
-  if (!out || data.responseStatus !== 200) return null;
-  if (/QUERY LENGTH LIMIT/i.test(out)) return null;
-  return out;
+/** Infer source language from script: Arabic letters → ar, otherwise en. */
+export function detectChatLang(text: string): ChatLang {
+  return hasArabicScript(text) ? "ar" : "en";
 }
 
-/** Google gtx translate (public endpoint) as fallback. */
+function leftoverAfterMasks(masked: string): string {
+  return masked.replace(/__TJ\d+__/g, "").replace(/\s+/g, "").trim();
+}
+
+function looksLikeTransliteration(text: string): boolean {
+  const t = text.toLowerCase();
+  if (
+    /\b(al+ss?alamu?|assalamu?|ealaykum|3alaykum|alaykum|warahmat)\b/i.test(t)
+  ) {
+    return true;
+  }
+  const words = t.split(/[^a-z]+/).filter((w) => w.length > 1);
+  if (words.length < 2) return false;
+  const englishHits = (
+    t.match(
+      /\b(the|a|an|is|are|you|and|of|to|peace|upon|mercy|blessings?|hello|hi)\b/gi,
+    ) || []
+  ).length;
+  return englishHits === 0;
+}
+
+function translationLooksWrong(
+  original: string,
+  translated: string,
+  from: ChatLang,
+  to: ChatLang,
+): boolean {
+  if (!translated) return true;
+  if (translated === original) return true;
+  if (from === "ar" && to === "en") {
+    if (hasArabicScript(translated)) return true;
+    if (looksLikeTransliteration(translated)) return true;
+  }
+  if (from === "en" && to === "ar" && !hasArabicScript(translated)) return true;
+  return false;
+}
+
 async function translateGtx(
   text: string,
-  from: ChatLang,
   to: ChatLang,
 ): Promise<string | null> {
   const url = new URL("https://translate.googleapis.com/translate_a/single");
   url.searchParams.set("client", "gtx");
-  url.searchParams.set("sl", from);
+  url.searchParams.set("sl", "auto");
   url.searchParams.set("tl", to);
   url.searchParams.set("dt", "t");
   url.searchParams.set("q", text.slice(0, 900));
@@ -56,50 +73,32 @@ async function translateGtx(
   return out || null;
 }
 
-function translationLooksWrong(
-  original: string,
-  translated: string,
-  from: ChatLang,
-  to: ChatLang,
-): boolean {
-  if (!translated) return true;
-  if (translated === original) return true;
-  // ar→en should not still be mostly Arabic
-  if (from === "ar" && to === "en" && hasArabicScript(translated)) return true;
-  // en→ar should gain Arabic script
-  if (from === "en" && to === "ar" && !hasArabicScript(translated)) return true;
-  return false;
-}
-
-/** Translate text between English and Arabic with fallback. */
+/** Translate text between English and Arabic only. */
 export async function translateText(
   text: string,
-  from: ChatLang,
-  to: ChatLang,
+  _from?: ChatLang,
+  to?: ChatLang,
 ): Promise<string> {
   const trimmed = text.trim();
   if (!trimmed) return "";
-  if (from === to) return trimmed;
 
-  const { masked, restore } = protectTajweedTerms(trimmed, from, to);
+  const source = detectChatLang(trimmed);
+  const target: ChatLang =
+    to && to !== source ? to : source === "ar" ? "en" : "ar";
+  if (source === target) return trimmed;
 
-  try {
-    const first = await translateMyMemory(masked, from, to);
-    if (first && !translationLooksWrong(masked, first, from, to)) {
-      return restore(first);
-    }
-  } catch {
-    /* try fallback */
+  const { masked, restore } = protectTajweedTerms(trimmed, source, target);
+  if (!leftoverAfterMasks(masked)) {
+    return restore(masked);
   }
 
   try {
-    const second = await translateGtx(masked, from, to);
-    if (second && !translationLooksWrong(masked, second, from, to)) {
-      return restore(second);
+    const out = await translateGtx(masked, target);
+    if (out && !translationLooksWrong(masked, out, source, target)) {
+      return restore(out);
     }
-    if (second) return restore(second);
   } catch {
-    /* fall through */
+    /* keep original rather than a third language */
   }
 
   return restore(trimmed);
