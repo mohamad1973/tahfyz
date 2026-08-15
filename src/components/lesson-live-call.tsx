@@ -89,7 +89,13 @@ export function LessonLiveCall({
       const c = remote[i];
       if (!c?.candidate) continue;
       try {
-        await pc.addIceCandidate(new RTCIceCandidate(c));
+        await pc.addIceCandidate(
+          new RTCIceCandidate({
+            candidate: c.candidate ?? undefined,
+            sdpMid: c.sdpMid ?? undefined,
+            sdpMLineIndex: c.sdpMLineIndex ?? undefined,
+          }),
+        );
       } catch {
         /* candidate may arrive early */
       }
