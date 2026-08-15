@@ -139,16 +139,31 @@ model TeacherMedia {
 }
 
 model ChatThread {
-  id        String        @id
-  teacherId String
-  studentId String
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  messages  ChatMessage[]
+  id         String        @id
+  teacherId  String
+  studentId  String
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  messages   ChatMessage[]
+  lessonCall LessonCall?
 
   @@unique([teacherId, studentId])
   @@index([teacherId])
   @@index([studentId])
+}
+
+model LessonCall {
+  id          String     @id
+  threadId    String     @unique
+  status      String
+  offerSdp    String?    @db.Text
+  answerSdp   String?    @db.Text
+  offerIce    String     @db.Text
+  answerIce   String     @db.Text
+  startedById String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  thread      ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
 }
 
 model ChatMessage {

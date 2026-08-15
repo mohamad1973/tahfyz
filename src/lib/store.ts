@@ -6,6 +6,8 @@ import type {
   BookingStatus,
   ChatMessage,
   ChatThread,
+  LessonCallState,
+  LessonCallStatus,
   MediaItem,
   Notification,
   ParentStudentLink,
@@ -810,5 +812,148 @@ export async function consumePasswordResetToken(
   }
   await prisma.passwordResetToken.delete({ where: { id: row.id } });
   return row.userId;
+}
+
+function parseIceList(raw: string): Array<{
+  candidate?: string | null;
+  sdpMid?: string | null;
+  sdpMLineIndex?: number | null;
+}> {
+  try {
+  const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed)
+      ? (parsed as Array<{
+          candidate?: string | null;
+          sdpMid?: string | null;
+          sdpMLineIndex?: number | null;
+        }>)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function toLessonCall(row: {
+  id: string;
+  threadId: string;
+  status: string;
+  offerSdp: string | null;
+  answerSdp: string | null;
+  offerIce: string;
+  answerIce: string;
+  startedById: string;
+  updatedAt: Date;
+}): LessonCallState {
+  return {
+    id: row.id,
+    threadId: row.threadId,
+    status: row.status as LessonCallStatus,
+    offerSdp: row.offerSdp || undefined,
+    answerSdp: row.answerSdp || undefined,
+    offerIce: parseIceList(row.offerIce),
+    answerIce: parseIceList(row.answerIce),
+    startedById: row.startedById,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export async function getLessonCall(
+  threadId: string,
+): Promise<LessonCallState | undefined> {
+  const row = await prisma.lessonCall.findUnique({ where: { threadId } });
+  return row ? toLessonCall(row) : undefined;
+}
+
+export async function resetLessonCallOffer(input: {
+  threadId: string;
+  startedById: string;
+  offerSdp: string;
+}): Promise<LessonCallState> {
+  const row = await prisma.lessonCall.upsert({
+    where: { threadId: input.threadId },
+    create: {
+      id: uid("lcall"),
+      threadId: input.threadId,
+      status: "waiting",
+      offerSdp: input.offerSdp,
+      answerSdp: null,
+      offerIce: "[]",
+      answerIce: "[]",
+      startedById: input.startedById,
+    },
+    update: {
+      status: "waiting",
+      offerSdp: input.offerSdp,
+      answerSdp: null,
+      offerIce: "[]",
+      answerIce: "[]",
+      startedById: input.startedById,
+    },
+  });
+  return toLessonCall(row);
+}
+
+export async function setLessonCallAnswer(
+  threadId: string,
+  answerSdp: string,
+): Promise<LessonCallState | undefined> {
+  const existing = await prisma.lessonCall.findUnique({ where: { threadId } });
+  if (!existing) return undefined;
+  const row = await prisma.lessonCall.update({
+    where: { threadId },
+    data: { answerSdp, status: "ringing" },
+  });
+  return toLessonCall(row);
+}
+
+export async function appendLessonCallIce(
+  threadId: string,
+  side: "offer" | "answer",
+  candidate: {
+    candidate?: string | null;
+    sdpMid?: string | null;
+    sdpMLineIndex?: number | null;
+  },
+): Promise<LessonCallState | undefined> {
+  const existing = await prisma.lessonCall.findUnique({ where: { threadId } });
+  if (!existing) return undefined;
+  const field = side === "offer" ? "offerIce" : "answerIce";
+  const list = parseIceList(existing[field]);
+  list.push(candidate);
+  const row = await prisma.lessonCall.update({
+    where: { threadId },
+    data: { [field]: JSON.stringify(list) },
+  });
+  return toLessonCall(row);
+}
+
+export async function markLessonCallLive(
+  threadId: string,
+): Promise<LessonCallState | undefined> {
+  const existing = await prisma.lessonCall.findUnique({ where: { threadId } });
+  if (!existing) return undefined;
+  const row = await prisma.lessonCall.update({
+    where: { threadId },
+    data: { status: "live" },
+  });
+  return toLessonCall(row);
+}
+
+export async function endLessonCall(
+  threadId: string,
+): Promise<LessonCallState | undefined> {
+  const existing = await prisma.lessonCall.findUnique({ where: { threadId } });
+  if (!existing) return undefined;
+  const row = await prisma.lessonCall.update({
+    where: { threadId },
+    data: {
+      status: "ended",
+      offerSdp: null,
+      answerSdp: null,
+      offerIce: "[]",
+      answerIce: "[]",
+    },
+  });
+  return toLessonCall(row);
 }
 

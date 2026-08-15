@@ -98,6 +98,26 @@ export interface ChatThread {
   updatedAt: string;
 }
 
+export type LessonCallStatus = "waiting" | "ringing" | "live" | "ended";
+
+export interface IceCandidateJson {
+  candidate?: string | null;
+  sdpMid?: string | null;
+  sdpMLineIndex?: number | null;
+}
+
+export interface LessonCallState {
+  id: string;
+  threadId: string;
+  status: LessonCallStatus;
+  offerSdp?: string;
+  answerSdp?: string;
+  offerIce: IceCandidateJson[];
+  answerIce: IceCandidateJson[];
+  startedById: string;
+  updatedAt: string;
+}
+
 export interface ChatMessage {
   id: string;
   threadId: string;

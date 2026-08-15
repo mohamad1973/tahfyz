@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { LessonLiveCall } from "@/components/lesson-live-call";
 import { LessonChatClient } from "@/components/lesson-chat-client";
 import { useI18n } from "@/lib/i18n/provider";
 
@@ -29,6 +30,11 @@ export function ChatThreadHeader({
           {t.back}
         </Link>
       </div>
+      <LessonLiveCall
+        threadId={threadId}
+        currentUserId={currentUserId}
+        role={role}
+      />
       <LessonChatClient
         threadId={threadId}
         currentUserId={currentUserId}

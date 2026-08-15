@@ -105,6 +105,14 @@ export type Dictionary = {
   lessonSavedNone: string;
   lessonDownloadEmpty: string;
   lessonDownloadOk: string;
+  startLiveCall: string;
+  joinLiveCall: string;
+  endLiveCall: string;
+  liveCallHint: string;
+  liveCallConnecting: string;
+  liveCallNeedPeer: string;
+  liveCallLive: string;
+  liveCallMicError: string;
 };
 
 export const dictionaries: Record<Lang, Dictionary> = {
@@ -229,6 +237,15 @@ export const dictionaries: Record<Lang, Dictionary> = {
     lessonSavedNone: "لا رسائل جديدة للحفظ (أو لا رسائل في الشات)",
     lessonDownloadEmpty: "لا يوجد محفوظ محلياً اليوم — احفظ جملاً أو احفظ الكل أولاً",
     lessonDownloadOk: "تم تنزيل أرشيف الدرس (نص + صوت بأسماء إنجليزية)",
+    startLiveCall: "بدء الحصة الصوتية",
+    joinLiveCall: "انضمام للحصة",
+    endLiveCall: "إنهاء الحصة",
+    liveCallHint:
+      "تجربة: تسمعان بعضكما فوراً. بعد أن تتوقف عن الكلام يظهر النص والترجمة في العمودين. الموقع الحي لا يتأثر إلا إذا نُشرت هذه التجربة لاحقاً.",
+    liveCallConnecting: "جاري الاتصال… اسمح بالميكروفون",
+    liveCallNeedPeer: "بانتظار انضمام الطرف الآخر…",
+    liveCallLive: "الحصة متصلة — تكلما، والترجمة تظهر بعد صمت قصير",
+    liveCallMicError: "تعذر فتح الميكروفون. اسمح به من إعدادات المتصفح.",
   },
   en: {
     teachers: "Teachers",
@@ -355,5 +372,14 @@ export const dictionaries: Record<Lang, Dictionary> = {
     lessonSavedNone: "Nothing new to save (or chat is empty)",
     lessonDownloadEmpty: "Nothing saved locally today — save lines or Save all first",
     lessonDownloadOk: "Lesson archive downloaded (text + audio with English names)",
+    startLiveCall: "Start live lesson",
+    joinLiveCall: "Join lesson",
+    endLiveCall: "End lesson",
+    liveCallHint:
+      "Trial: you hear each other instantly. After you pause, text and translation appear in the columns. Production stays on v1 until you approve publishing this experiment.",
+    liveCallConnecting: "Connecting… allow the microphone",
+    liveCallNeedPeer: "Waiting for the other person to join…",
+    liveCallLive: "Live — speak; captions appear after a short pause",
+    liveCallMicError: "Could not open the microphone. Allow it in browser settings.",
   },
 };

@@ -21,6 +21,12 @@ import {
   getUserByEmail,
   getUserById,
   getUserByUsername,
+  getLessonCall,
+  appendLessonCallIce,
+  endLessonCall,
+  markLessonCallLive,
+  resetLessonCallOffer,
+  setLessonCallAnswer,
   resolveLoginUser,
   hasBookedLesson,
   linkGuestBookingsToStudent,
@@ -1055,4 +1061,89 @@ export async function listMyChatPartnersAction() {
       username: string;
     }[],
   };
+}
+
+async function requireLessonThread(threadId: string) {
+  const { user } = await requireSession(["student", "teacher"]);
+  const thread = await getChatThread(threadId);
+  if (!thread) return { ok: false as const, error: "Chat not found" };
+  const allowed =
+    (user.role === "student" && thread.studentId === user.id) ||
+    (user.role === "teacher" && thread.teacherId === user.teacherId);
+  if (!allowed) return { ok: false as const, error: "Not authorized" };
+  return { ok: true as const, user, thread };
+}
+
+export async function fetchLessonCallAction(threadId: string) {
+  const gate = await requireLessonThread(threadId);
+  if (!gate.ok) return gate;
+  const call = await getLessonCall(threadId);
+  return { ok: true as const, call: call ?? null };
+}
+
+export async function startLessonCallOfferAction(input: {
+  threadId: string;
+  offerSdp: string;
+}) {
+  const gate = await requireLessonThread(input.threadId);
+  if (!gate.ok) return gate;
+  const offerSdp = input.offerSdp.trim();
+  if (!offerSdp) return { ok: false as const, error: "Missing offer" };
+  const call = await resetLessonCallOffer({
+    threadId: input.threadId,
+    startedById: gate.user.id,
+    offerSdp,
+  });
+  return { ok: true as const, call };
+}
+
+export async function setLessonCallAnswerAction(input: {
+  threadId: string;
+  answerSdp: string;
+}) {
+  const gate = await requireLessonThread(input.threadId);
+  if (!gate.ok) return gate;
+  const answerSdp = input.answerSdp.trim();
+  if (!answerSdp) return { ok: false as const, error: "Missing answer" };
+  const call = await setLessonCallAnswer(input.threadId, answerSdp);
+  if (!call) return { ok: false as const, error: "Call not found" };
+  return { ok: true as const, call };
+}
+
+export async function addLessonCallIceAction(input: {
+  threadId: string;
+  side: "offer" | "answer";
+  candidate: {
+    candidate?: string | null;
+    sdpMid?: string | null;
+    sdpMLineIndex?: number | null;
+  };
+}) {
+  const gate = await requireLessonThread(input.threadId);
+  if (!gate.ok) return gate;
+  if (input.side !== "offer" && input.side !== "answer") {
+    return { ok: false as const, error: "Invalid ICE side" };
+  }
+  const call = await appendLessonCallIce(
+    input.threadId,
+    input.side,
+    input.candidate,
+  );
+  if (!call) return { ok: false as const, error: "Call not found" };
+  return { ok: true as const, call };
+}
+
+export async function markLessonCallLiveAction(threadId: string) {
+  const gate = await requireLessonThread(threadId);
+  if (!gate.ok) return gate;
+  const call = await markLessonCallLive(threadId);
+  if (!call) return { ok: false as const, error: "Call not found" };
+  return { ok: true as const, call };
+}
+
+export async function endLessonCallAction(threadId: string) {
+  const gate = await requireLessonThread(threadId);
+  if (!gate.ok) return gate;
+  const call = await endLessonCall(threadId);
+  return { ok: true as const, call: call ?? null };
 }
