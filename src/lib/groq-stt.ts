@@ -48,7 +48,10 @@ export async function transcribeAudioBytes(
     { type },
   );
   form.append("file", file);
-  form.append("model", "whisper-large-v3-turbo");
+  form.append(
+    "model",
+    language === "ar" ? "whisper-large-v3" : "whisper-large-v3-turbo",
+  );
   form.append("language", language);
   form.append("response_format", "json");
   form.append("temperature", "0");

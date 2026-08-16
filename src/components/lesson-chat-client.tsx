@@ -59,18 +59,11 @@ function pickAudioMime(): string | undefined {
 function collapseRepeatedSpeech(text: string): string {
   let s = text.replace(/\s+/g, " ").trim();
   if (!s) return "";
-  // Drop consecutive duplicate words: "ذلك ذلك الكتاب" → "ذلك الكتاب"
-  const words = s.split(" ");
-  const deduped: string[] = [];
-  for (const w of words) {
-    if (deduped.length && deduped[deduped.length - 1] === w) continue;
-    deduped.push(w);
-  }
-  s = deduped.join(" ");
-  // Drop repeated phrases of 2–6 words: "ذلك الكتاب ذلك الكتاب" → "ذلك الكتاب"
-  for (let n = 6; n >= 2; n--) {
+  // Keep intended recitation repeats like "ذلك ذلك". Only drop long
+  // Whisper hallucination loops of 4–6 words said more than twice.
+  for (let n = 6; n >= 4; n--) {
     const re = new RegExp(
-      `((?:[^\\s]+\\s+){${n - 1}}[^\\s]+)(?:\\s+\\1)+`,
+      `((?:[^\\s]+\\s+){${n - 1}}[^\\s]+)(?:\\s+\\1){2,}`,
       "gu",
     );
     s = s.replace(re, "$1");
@@ -1152,8 +1145,11 @@ export function LessonChatClient({
       let recorder: MediaRecorder;
       try {
         recorder = mime
-          ? new MediaRecorder(stream, { mimeType: mime })
-          : new MediaRecorder(stream);
+          ? new MediaRecorder(stream, {
+              mimeType: mime,
+              audioBitsPerSecond: 96_000,
+            })
+          : new MediaRecorder(stream, { audioBitsPerSecond: 96_000 });
       } catch {
         recorder = new MediaRecorder(stream);
       }
