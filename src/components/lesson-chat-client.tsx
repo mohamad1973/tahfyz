@@ -365,6 +365,14 @@ function MicHoldButton({
 }) {
   const touchModeRef = useRef(false);
 
+  function shouldTapToToggle(pointerType: string) {
+    return (
+      pointerType === "touch" ||
+      pointerType === "pen" ||
+      isMobileCapture()
+    );
+  }
+
   return (
     <button
       type="button"
@@ -376,8 +384,9 @@ function MicHoldButton({
           : "border-olive/30 bg-card text-olive hover:bg-olive/10"
       }`}
       onPointerDown={(e) => {
-        // Touch/pen: tap-to-toggle via click — avoid hold race (down+up before mic opens)
-        if (e.pointerType === "touch" || e.pointerType === "pen") {
+        // Phone/tablet: tap to start, tap to stop — even if the browser
+        // reports pointerType "mouse" for a tap.
+        if (shouldTapToToggle(e.pointerType)) {
           touchModeRef.current = true;
           onTouchUi?.(true);
           return;
@@ -389,7 +398,7 @@ function MicHoldButton({
         onStart(side);
       }}
       onPointerUp={(e) => {
-        if (e.pointerType === "touch" || e.pointerType === "pen") return;
+        if (touchModeRef.current || shouldTapToToggle(e.pointerType)) return;
         e.preventDefault();
         try {
           (e.currentTarget as HTMLButtonElement).releasePointerCapture(
@@ -401,7 +410,7 @@ function MicHoldButton({
         onStop();
       }}
       onPointerCancel={(e) => {
-        if (e.pointerType === "touch" || e.pointerType === "pen") return;
+        if (touchModeRef.current || shouldTapToToggle(e.pointerType)) return;
         onStop();
       }}
       onClick={(e) => {
@@ -702,7 +711,10 @@ export function LessonChatClient({
   const stopRequestedRef = useRef(false);
   const speechDelayTimerRef = useRef<number | undefined>(undefined);
   const recorderMimeRef = useRef("audio/webm;codecs=opus");
-  const lastTalkSideRef = useRef<ChatLang>("ar");
+  const lastTalkSideRef = useRef<ChatLang>(
+    role === "teacher" ? "ar" : "en",
+  );
+  const holdStartedAtRef = useRef(0);
   const pollFailRef = useRef(0);
   const transcribingRef = useRef(false);
 
@@ -1025,7 +1037,9 @@ export function LessonChatClient({
   }
 
   function requestStopHold() {
-
+    if (Date.now() - holdStartedAtRef.current < 450) {
+      return;
+    }
     if (startingRef.current) {
       stopRequestedRef.current = true;
       return;
@@ -1100,6 +1114,7 @@ export function LessonChatClient({
     audioChunksRef.current = [];
     holdingRef.current = side;
     setHolding(side);
+    holdStartedAtRef.current = Date.now();
     setInterim("");
     clearSpeechDelay();
     startingRef.current = true;
@@ -1171,7 +1186,11 @@ export function LessonChatClient({
     startingRef.current = false;
 
     if (stopRequestedRef.current) {
-      stopHoldAndTranslate();
+      if (Date.now() - holdStartedAtRef.current < 450) {
+        stopRequestedRef.current = false;
+      } else {
+        stopHoldAndTranslate();
+      }
     }
   }
 
@@ -1364,7 +1383,7 @@ export function LessonChatClient({
               onClick={() => {
                 setError(null);
                 setMicStatus("idle");
-                void startHold(lastTalkSideRef.current);
+                void startHold(speakerLang);
               }}
             >
               {t.micRetry}
