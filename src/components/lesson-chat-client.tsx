@@ -11,7 +11,7 @@ import {
   fetchChatMessagesAction,
   sendChatMessageAction,
   speakTranslatedMessageAction,
-  transcribeChatAudioBytesAction,
+  transcribeChatAudioAction,
   translateChatMessageAction,
   patchChatMessageAudioAction,
 } from "@/lib/actions";
@@ -722,8 +722,10 @@ export function LessonChatClient({
     const theirs = messages.filter((m) => m.senderId !== currentUserId);
     return (role === "teacher" ? mine : theirs).sort(byNewest);
   }, [currentUserId, messages, role]);
-  const leftPending = pending.filter((p) => p.originalLang === "en");
-  const rightPending = pending.filter((p) => p.originalLang === "ar");
+  const speakerLang: ChatLang = role === "teacher" ? "ar" : "en";
+  const leftPending = role === "student" ? pending : [];
+  const rightPending = role === "teacher" ? pending : [];
+  const mineRecording = Boolean(holding || transcribingSide);
 
   useEffect(() => {
     setTouchUi(isMobileCapture());
@@ -832,23 +834,11 @@ export function LessonChatClient({
     return result.url;
   }
 
-  async function transcribeAudioBlob(
-    blob: Blob,
-    originalLang: ChatLang,
-  ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
-    const form = new FormData();
-    form.set("threadId", threadId);
-    form.set("originalLang", originalLang);
-    form.set("file", blobFileForAudio(blob, "rec"));
-    return transcribeChatAudioBytesAction(form);
-  }
-
   function sendFinal(
     text: string,
     originalLang: ChatLang,
     audioBlob: Blob | null,
     audioUrlReady?: string,
-    uploadInFlight?: Promise<string | null>,
   ) {
     const payload = collapseRepeatedSpeech(text.trim());
     if (!payload) {
@@ -895,17 +885,7 @@ export function LessonChatClient({
         void (async () => {
           try {
             let url = audioUrl;
-            if (!url && uploadInFlight) {
-              url = (await uploadInFlight) || undefined;
-              if (!url) {
-                setError(
-                  lang === "ar"
-                    ? "فشل رفع الصوت — النص وصل والملف سيُعاد عند الإرسال التالي"
-                    : "Audio upload failed — the text was sent",
-                );
-                return;
-              }
-            } else if (!url && audioBlob && audioBlob.size >= 500) {
+            if (!url && audioBlob && audioBlob.size >= 500) {
               url = await uploadAudioBlob(audioBlob);
             } else if (
               !url &&
@@ -939,17 +919,6 @@ export function LessonChatClient({
           const translated = await translateChatMessageAction({ messageId });
           if (!translated.ok) return;
           mergeMessage(translated.message);
-          const spoken = translated.message.translatedText.trim();
-          if (!spoken || spoken === translated.message.originalText.trim()) {
-            return;
-          }
-          const speech = await speakTranslatedMessageAction({ messageId });
-          if (speech.ok) {
-            mergeMessage({
-              ...translated.message,
-              translatedAudioUrl: speech.url,
-            });
-          }
         })();
       } catch (e) {
         setPending((prev) => prev.filter((p) => p.id !== tempId));
@@ -963,7 +932,7 @@ export function LessonChatClient({
     });
   }
 
-  async function processRecordedAudio(side: ChatLang, audioBlob: Blob | null) {
+  async function processRecordedAudio(_side: ChatLang, audioBlob: Blob | null) {
     if (!audioBlob || audioBlob.size < 500) {
       setError(
         lang === "ar"
@@ -974,22 +943,24 @@ export function LessonChatClient({
     }
 
     setError(null);
-    setTranscribingSide(side);
+    setTranscribingSide(speakerLang);
     setInterim(t.transcribingAudio);
-    const uploadPromise: Promise<string | null> = uploadAudioBlob(audioBlob)
-      .then((url) => url)
-      .catch(() => null);
     try {
-      const stt = await transcribeAudioBlob(audioBlob, side);
+      const audioUrl = await uploadAudioBlob(audioBlob);
+      const stt = await transcribeChatAudioAction({
+        threadId,
+        audioUrl,
+        originalLang: speakerLang,
+      });
       setInterim("");
       setTranscribingSide(null);
       if (stt.ok && stt.text.trim()) {
         const text = collapseRepeatedSpeech(stt.text);
-        setComposer(side, text);
-        sendFinal(text, side, null, undefined, uploadPromise);
+        setComposer(speakerLang, text);
+        sendFinal(text, speakerLang, null, audioUrl);
         return;
       }
-      setPendingAudio({ originalLang: side, blob: audioBlob });
+      setPendingAudio({ originalLang: speakerLang, blob: audioBlob });
       setError(
         stt.ok
           ? t.typeWhatYouSaid
@@ -1000,7 +971,7 @@ export function LessonChatClient({
     } catch (e) {
       setInterim("");
       setTranscribingSide(null);
-      setPendingAudio({ originalLang: side, blob: audioBlob });
+      setPendingAudio({ originalLang: speakerLang, blob: audioBlob });
       setError(
         lang === "ar"
           ? `فشل المعالجة: ${e instanceof Error ? e.message : "خطأ"} — اكتب الجملة ثم إرسال`
@@ -1010,12 +981,8 @@ export function LessonChatClient({
   }
 
   function sendComposer(side: ChatLang) {
-    const text = getComposer(side);
-    const audio =
-      pendingAudio && pendingAudio.originalLang === side
-        ? pendingAudio.blob
-        : null;
-    sendFinal(text, side, audio);
+    const text = getComposer(side).trim() || getComposer(speakerLang);
+    sendFinal(text, speakerLang, pendingAudio?.blob ?? null);
   }
 
   function stopRecorderToBlob(recorder: MediaRecorder): Promise<Blob | null> {
@@ -1433,10 +1400,10 @@ export function LessonChatClient({
             title={t.paneStudent}
             items={leftMessages}
             pendingItems={leftPending}
-            showInterim={holding === "en" || transcribingSide === "en"}
-            interim={holding === "en" || transcribingSide === "en" ? interim : ""}
+            showInterim={role === "student" && mineRecording}
+            interim={role === "student" && mineRecording ? interim : ""}
             composerText={composerEn}
-            hasPendingAudio={pendingAudio?.originalLang === "en"}
+            hasPendingAudio={role === "student" && Boolean(pendingAudio)}
             dir="rtl"
             cardClass="rounded-xl border border-line bg-bg px-3 py-2 text-sm"
             empty={t.paneLeftEmpty}
@@ -1451,7 +1418,7 @@ export function LessonChatClient({
             uploadingAudio={t.uploadingAudio}
             typePlaceholder={t.typeMessage}
             sendLabel={
-              pendingAudio?.originalLang === "en" ? t.sendWithAudio : t.send
+              role === "student" && pendingAudio ? t.sendWithAudio : t.send
             }
             writeLabel={t.writeMessage}
             audioReadyHint={audioReadyHint}
@@ -1479,10 +1446,10 @@ export function LessonChatClient({
             title={t.paneSheikh}
             items={rightMessages}
             pendingItems={rightPending}
-            showInterim={holding === "ar" || transcribingSide === "ar"}
-            interim={holding === "ar" || transcribingSide === "ar" ? interim : ""}
+            showInterim={role === "teacher" && mineRecording}
+            interim={role === "teacher" && mineRecording ? interim : ""}
             composerText={composerAr}
-            hasPendingAudio={pendingAudio?.originalLang === "ar"}
+            hasPendingAudio={role === "teacher" && Boolean(pendingAudio)}
             dir="ltr"
             cardClass="rounded-xl border border-olive/25 bg-olive/5 px-3 py-2 text-sm"
             empty={t.paneRightEmpty}
@@ -1497,7 +1464,7 @@ export function LessonChatClient({
             uploadingAudio={t.uploadingAudio}
             typePlaceholder={t.typeMessage}
             sendLabel={
-              pendingAudio?.originalLang === "ar" ? t.sendWithAudio : t.send
+              role === "teacher" && pendingAudio ? t.sendWithAudio : t.send
             }
             writeLabel={t.writeMessage}
             audioReadyHint={audioReadyHint}

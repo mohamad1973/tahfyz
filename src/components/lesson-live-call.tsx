@@ -9,7 +9,6 @@ import {
   markLessonCallLiveAction,
   sendChatMessageAction,
   setLessonCallAnswerAction,
-  speakTranslatedMessageAction,
   startLessonCallOfferAction,
   transcribeChatAudioAction,
   translateChatMessageAction,
@@ -303,22 +302,9 @@ export function LessonLiveCall({
               audioUrl: uploaded.url,
             });
             if (sent.ok) {
-              void (async () => {
-                const translated = await translateChatMessageAction({
-                  messageId: sent.message.id,
-                });
-                if (!translated.ok) return;
-                const spoken = translated.message.translatedText.trim();
-                if (
-                  !spoken ||
-                  spoken === translated.message.originalText.trim()
-                ) {
-                  return;
-                }
-                await speakTranslatedMessageAction({
-                  messageId: sent.message.id,
-                });
-              })();
+              void translateChatMessageAction({
+                messageId: sent.message.id,
+              });
             }
             setCaptionNote(null);
           } else {
