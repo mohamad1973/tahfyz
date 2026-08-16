@@ -5,7 +5,6 @@ import { upload } from "@vercel/blob/client";
 import {
   addLessonCallIceAction,
   endLessonCallAction,
-  fetchLessonCallAction,
   markLessonCallLiveAction,
   sendChatMessageAction,
   setLessonCallAnswerAction,
@@ -13,6 +12,7 @@ import {
   transcribeChatAudioAction,
   translateChatMessageAction,
 } from "@/lib/actions";
+import { fetchLessonCallApi } from "@/lib/lesson-poll";
 import { useI18n } from "@/lib/i18n/provider";
 import type { ChatLang } from "@/lib/translate";
 import type { IceCandidateJson, LessonCallState } from "@/lib/types";
@@ -527,7 +527,7 @@ export function LessonLiveCall({
 
   useEffect(() => {
     const tick = async () => {
-      const res = await fetchLessonCallAction(threadId);
+      const res = await fetchLessonCallApi(threadId);
       if (!res.ok || !res.call) return;
       const call = res.call;
       if (call.status === "ended") {

@@ -8,13 +8,13 @@ import type { ChatLang } from "@/lib/translate";
 import {
   clearChatThreadAction,
   deleteChatMessageAction,
-  fetchChatMessagesAction,
   sendChatMessageAction,
   speakTranslatedMessageAction,
   transcribeChatAudioAction,
   translateChatMessageAction,
   patchChatMessageAudioAction,
 } from "@/lib/actions";
+import { fetchChatMessagesApi } from "@/lib/lesson-poll";
 import { useI18n } from "@/lib/i18n/provider";
 import {
   downloadLessonFile,
@@ -711,6 +711,7 @@ export function LessonChatClient({
   const recorderMimeRef = useRef("audio/webm;codecs=opus");
   const lastTalkSideRef = useRef<ChatLang>("ar");
   const pollFailRef = useRef(0);
+  const transcribingRef = useRef(false);
 
   const leftMessages = useMemo(() => {
     const mine = messages.filter((m) => m.senderId === currentUserId);
@@ -943,6 +944,7 @@ export function LessonChatClient({
     }
 
     setError(null);
+    transcribingRef.current = true;
     setTranscribingSide(speakerLang);
     setInterim(t.transcribingAudio);
     try {
@@ -952,8 +954,6 @@ export function LessonChatClient({
         audioUrl,
         originalLang: speakerLang,
       });
-      setInterim("");
-      setTranscribingSide(null);
       if (stt.ok && stt.text.trim()) {
         const text = collapseRepeatedSpeech(stt.text);
         setComposer(speakerLang, text);
@@ -969,14 +969,16 @@ export function LessonChatClient({
             : `Could not transcribe: ${stt.error} — type the sentence then Send`,
       );
     } catch (e) {
-      setInterim("");
-      setTranscribingSide(null);
       setPendingAudio({ originalLang: speakerLang, blob: audioBlob });
       setError(
         lang === "ar"
           ? `فشل المعالجة: ${e instanceof Error ? e.message : "خطأ"} — اكتب الجملة ثم إرسال`
           : `Processing failed: ${e instanceof Error ? e.message : "error"} — type then Send`,
       );
+    } finally {
+      transcribingRef.current = false;
+      setInterim("");
+      setTranscribingSide(null);
     }
   }
 
@@ -1179,7 +1181,7 @@ export function LessonChatClient({
 
   useEffect(() => {
     start(async () => {
-      const res = await fetchChatMessagesAction(threadId);
+      const res = await fetchChatMessagesApi(threadId);
       if (res.ok) {
         pollFailRef.current = 0;
         setPollError(null);
@@ -1193,8 +1195,16 @@ export function LessonChatClient({
 
   useEffect(() => {
     const id = window.setInterval(() => {
+      if (
+        holdingRef.current ||
+        transcribingRef.current ||
+        startingRef.current ||
+        stoppingRef.current
+      ) {
+        return;
+      }
       void (async () => {
-        const res = await fetchChatMessagesAction(threadId);
+        const res = await fetchChatMessagesApi(threadId);
         if (!res.ok) {
           pollFailRef.current += 1;
           if (pollFailRef.current >= 2) setPollError(t.chatSyncFailed);
