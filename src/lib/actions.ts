@@ -33,6 +33,7 @@ import {
   listStudentTeacherPairs,
   listTeacherStudentPairs,
   replaceAvailability,
+  patchChatMessage,
   setChatMessageTranslatedAudioUrl,
   updateBooking,
   updateTeacher,
@@ -49,7 +50,7 @@ import {
   verifyPassword,
 } from "./utils";
 import { detectChatLang, translateText, type ChatLang } from "./translate";
-import { transcribeAudioUrl } from "./groq-stt";
+import { transcribeAudioBytes, transcribeAudioUrl } from "./groq-stt";
 import { generateTranslatedSpeechUrl } from "./groq-tts";
 import { buildCalendarWeek, buildOpenSlots } from "./slots";
 import {
@@ -869,49 +870,72 @@ export async function fetchChatMessagesAction(
   return { ok: true as const, messages };
 }
 
+function sanitizeChatAudioUrl(raw?: string): string | undefined {
+  const audioUrl = raw?.trim();
+  if (!audioUrl) return undefined;
+  try {
+    const host = new URL(audioUrl).hostname;
+    const ok =
+      host.endsWith(".public.blob.vercel-storage.com") ||
+      host === "public.blob.vercel-storage.com" ||
+      host.endsWith(".blob.vercel-storage.com");
+    return ok ? audioUrl : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function requireThreadForChatUser(threadId: string) {
+  const { user } = await requireSession(["student", "teacher"]);
+  const thread = await getChatThread(threadId);
+  if (!thread) return { ok: false as const, error: "Chat not found" };
+  const allowed =
+    (user.role === "student" && thread.studentId === user.id) ||
+    (user.role === "teacher" && thread.teacherId === user.teacherId);
+  if (!allowed) return { ok: false as const, error: "Not authorized" };
+  return { ok: true as const, user, thread };
+}
+
+async function requireMessageForChatUser(messageId: string) {
+  const { user } = await requireSession(["student", "teacher"]);
+  const message = await getChatMessageById(messageId);
+  if (!message) return { ok: false as const, error: "Message not found" };
+  const thread = await getChatThread(message.threadId);
+  if (!thread) return { ok: false as const, error: "Chat not found" };
+  const allowed =
+    (user.role === "student" && thread.studentId === user.id) ||
+    (user.role === "teacher" && thread.teacherId === user.teacherId);
+  if (!allowed) return { ok: false as const, error: "Not authorized" };
+  return { ok: true as const, user, message, thread };
+}
+
+function chatLangForRole(role: "student" | "teacher" | string): ChatLang {
+  return role === "teacher" ? "ar" : "en";
+}
+
 export async function sendChatMessageAction(input: {
   threadId: string;
   text: string;
   originalLang: ChatLang;
   audioUrl?: string;
 }) {
-  const { user } = await requireSession(["student", "teacher"]);
-  const thread = await getChatThread(input.threadId);
-  if (!thread) return { ok: false as const, error: "Chat not found" };
-
-  const allowed =
-    (user.role === "student" && thread.studentId === user.id) ||
-    (user.role === "teacher" && thread.teacherId === user.teacherId);
-  if (!allowed) return { ok: false as const, error: "Not authorized" };
+  const access = await requireThreadForChatUser(input.threadId);
+  if (!access.ok) return access;
 
   const text = input.text.trim();
   if (!text) return { ok: false as const, error: "Empty message" };
 
-  const originalLang: ChatLang = detectChatLang(text);
+  const originalLang: ChatLang = chatLangForRole(access.user.role);
   const translatedLang: ChatLang = originalLang === "en" ? "ar" : "en";
-  const translatedText = await translateText(text, originalLang, translatedLang);
-
-  let audioUrl = input.audioUrl?.trim() || undefined;
-  if (audioUrl) {
-    try {
-      const host = new URL(audioUrl).hostname;
-      const ok =
-        host.endsWith(".public.blob.vercel-storage.com") ||
-        host === "public.blob.vercel-storage.com" ||
-        host.endsWith(".blob.vercel-storage.com");
-      if (!ok) audioUrl = undefined;
-    } catch {
-      audioUrl = undefined;
-    }
-  }
+  const audioUrl = sanitizeChatAudioUrl(input.audioUrl);
 
   const message = await addChatMessage({
     id: uid("cmsg"),
-    threadId: thread.id,
-    senderId: user.id,
+    threadId: access.thread.id,
+    senderId: access.user.id,
     originalText: text,
     originalLang,
-    translatedText,
+    translatedText: "",
     translatedLang,
     audioUrl,
     createdAt: new Date().toISOString(),
@@ -920,28 +944,69 @@ export async function sendChatMessageAction(input: {
   return { ok: true as const, message };
 }
 
+export async function patchChatMessageAudioAction(input: {
+  messageId: string;
+  audioUrl: string;
+}) {
+  const access = await requireMessageForChatUser(input.messageId);
+  if (!access.ok) return access;
+  if (access.message.senderId !== access.user.id) {
+    return { ok: false as const, error: "Not authorized" };
+  }
+
+  const audioUrl = sanitizeChatAudioUrl(input.audioUrl);
+  if (!audioUrl) return { ok: false as const, error: "Invalid audio URL" };
+
+  const message = await patchChatMessage(access.message.id, { audioUrl });
+  if (!message) return { ok: false as const, error: "Message not found" };
+  return { ok: true as const, message };
+}
+
+export async function translateChatMessageAction(input: { messageId: string }) {
+  const access = await requireMessageForChatUser(input.messageId);
+  if (!access.ok) return access;
+
+  const text = access.message.originalText.trim();
+  if (!text) return { ok: false as const, error: "Empty message" };
+
+  const translatedLang: ChatLang = access.message.translatedLang;
+  const existing = access.message.translatedText.trim();
+  if (existing && existing !== text) {
+    return { ok: true as const, message: access.message };
+  }
+
+  const detected = detectChatLang(text);
+  const translatedText =
+    detected === translatedLang
+      ? text
+      : await translateText(text, detected, translatedLang);
+
+  const message = await patchChatMessage(access.message.id, {
+    translatedText,
+    translatedLang,
+  });
+  if (!message) return { ok: false as const, error: "Message not found" };
+  return { ok: true as const, message };
+}
+
 export async function speakTranslatedMessageAction(input: {
   messageId: string;
 }) {
-  const { user } = await requireSession(["student", "teacher"]);
-  const message = await getChatMessageById(input.messageId);
-  if (!message) return { ok: false as const, error: "Message not found" };
-
-  const thread = await getChatThread(message.threadId);
-  if (!thread) return { ok: false as const, error: "Chat not found" };
-  const allowed =
-    (user.role === "student" && thread.studentId === user.id) ||
-    (user.role === "teacher" && thread.teacherId === user.teacherId);
-  if (!allowed) return { ok: false as const, error: "Not authorized" };
+  const access = await requireMessageForChatUser(input.messageId);
+  if (!access.ok) return access;
+  const message = access.message;
 
   if (message.translatedAudioUrl) {
     return { ok: true as const, url: message.translatedAudioUrl };
   }
 
+  const spoken = message.translatedText.trim();
+  if (!spoken) return { ok: false as const, error: "Translation not ready" };
+
   const speech = await generateTranslatedSpeechUrl({
     threadId: message.threadId,
     messageId: message.id,
-    text: message.translatedText,
+    text: spoken,
     language: message.translatedLang,
   });
   if (!speech.ok) return speech;
@@ -960,37 +1025,60 @@ export async function transcribeChatAudioAction(input: {
   audioUrl: string;
   originalLang: ChatLang;
 }) {
-  const { user } = await requireSession(["student", "teacher"]);
-  const thread = await getChatThread(input.threadId);
-  if (!thread) return { ok: false as const, error: "Chat not found" };
+  const access = await requireThreadForChatUser(input.threadId);
+  if (!access.ok) return access;
 
-  const allowed =
-    (user.role === "student" && thread.studentId === user.id) ||
-    (user.role === "teacher" && thread.teacherId === user.teacherId);
-  if (!allowed) return { ok: false as const, error: "Not authorized" };
-
-  let audioUrl = input.audioUrl?.trim() || "";
-  if (!audioUrl) return { ok: false as const, error: "Missing audio" };
-
-  try {
-    const host = new URL(audioUrl).hostname;
-    const okHost =
-      host.endsWith(".public.blob.vercel-storage.com") ||
-      host === "public.blob.vercel-storage.com" ||
-      host.endsWith(".blob.vercel-storage.com");
-    if (!okHost) {
-      return { ok: false as const, error: "Invalid audio URL" };
-    }
-  } catch {
-    return { ok: false as const, error: "Invalid audio URL" };
-  }
+  const audioUrl = sanitizeChatAudioUrl(input.audioUrl);
+  if (!audioUrl) return { ok: false as const, error: "Invalid audio URL" };
 
   let originalLang: ChatLang = input.originalLang;
   if (originalLang !== "en" && originalLang !== "ar") {
-    originalLang = user.role === "teacher" ? "ar" : "en";
+    originalLang = chatLangForRole(access.user.role);
   }
 
   const result = await transcribeAudioUrl(audioUrl, originalLang);
+  if (!result.ok) {
+    return { ok: false as const, error: result.error };
+  }
+  return { ok: true as const, text: result.text };
+}
+
+const MAX_TRANSCRIBE_BYTES = 8 * 1024 * 1024;
+
+export async function transcribeChatAudioBytesAction(formData: FormData) {
+  const threadId = String(formData.get("threadId") || "").trim();
+  const access = await requireThreadForChatUser(threadId);
+  if (!access.ok) return access;
+
+  const file = formData.get("file");
+  if (!file || typeof file === "string") {
+    return { ok: false as const, error: "Missing audio" };
+  }
+  const audio = file as Blob;
+  if (!audio.size) {
+    return { ok: false as const, error: "Missing audio" };
+  }
+  if (audio.size > MAX_TRANSCRIBE_BYTES) {
+    return { ok: false as const, error: "Audio too large" };
+  }
+
+  let originalLang = String(formData.get("originalLang") || "") as ChatLang;
+  if (originalLang !== "en" && originalLang !== "ar") {
+    originalLang = chatLangForRole(access.user.role);
+  }
+
+  const contentType = audio.type?.split(";")[0].trim() || "audio/webm";
+  const filename =
+    "name" in file && typeof (file as File).name === "string"
+      ? (file as File).name
+      : undefined;
+  const bytes = await audio.arrayBuffer();
+  const result = await transcribeAudioBytes(
+    bytes,
+    originalLang,
+    contentType,
+    filename,
+  );
   if (!result.ok) {
     return { ok: false as const, error: result.error };
   }
@@ -1087,6 +1175,9 @@ export async function startLessonCallOfferAction(input: {
 }) {
   const gate = await requireLessonThread(input.threadId);
   if (!gate.ok) return gate;
+  if (gate.user.role !== "teacher") {
+    return { ok: false as const, error: "Only the teacher can start the lesson" };
+  }
   const offerSdp = input.offerSdp.trim();
   if (!offerSdp) return { ok: false as const, error: "Missing offer" };
   const call = await resetLessonCallOffer({

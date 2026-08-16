@@ -113,6 +113,14 @@ export type Dictionary = {
   liveCallNeedPeer: string;
   liveCallLive: string;
   liveCallMicError: string;
+  liveCallStudentWait: string;
+  liveCallSheikhStarted: string;
+  liveCallAllowMic: string;
+  liveCallJoinRetry: string;
+  liveCallPlayAudio: string;
+  liveCallNoAudio: string;
+  messageNotFound: string;
+  chatSyncFailed: string;
 };
 
 export const dictionaries: Record<Lang, Dictionary> = {
@@ -237,15 +245,25 @@ export const dictionaries: Record<Lang, Dictionary> = {
     lessonSavedNone: "لا رسائل جديدة للحفظ (أو لا رسائل في الشات)",
     lessonDownloadEmpty: "لا يوجد محفوظ محلياً اليوم — احفظ جملاً أو احفظ الكل أولاً",
     lessonDownloadOk: "تم تنزيل أرشيف الدرس (نص + صوت بأسماء إنجليزية)",
-    startLiveCall: "بدء الحصة الصوتية",
+    startLiveCall: "بدء الحصة",
     joinLiveCall: "انضمام للحصة",
     endLiveCall: "إنهاء الحصة",
     liveCallHint:
-      "تجربة: تسمعان بعضكما فوراً. بعد أن تتوقف عن الكلام يظهر النص والترجمة في العمودين. الموقع الحي لا يتأثر إلا إذا نُشرت هذه التجربة لاحقاً.",
+      "الشيخ يضغط بدء الحصة فقط. ثم الطالب يضغط السماح بالميكروفون. الشات القديم يبقى كما هو.",
     liveCallConnecting: "جاري الاتصال… اسمح بالميكروفون",
-    liveCallNeedPeer: "بانتظار انضمام الطرف الآخر…",
-    liveCallLive: "الحصة متصلة — تكلما، والترجمة تظهر بعد صمت قصير",
+    liveCallNeedPeer: "بانتظار الطالب… أبقِ صفحة الطالب مفتوحة على نفس الشات",
+    liveCallLive: "متصل — يفترض أن تسمع الطرف الآخر وتتكلم",
     liveCallMicError: "تعذر فتح الميكروفون. اسمح به من إعدادات المتصفح.",
+    liveCallStudentWait: "انتظر حتى يبدأ الشيخ الحصة من جهازه",
+    liveCallSheikhStarted: "الشيخ بدأ الحصة — اضغط للسماح بالميكروفون",
+    liveCallAllowMic: "السماح بالميكروفون لسماع الشيخ",
+    liveCallJoinRetry: "تعذر الانضمام. اضغط السماح بالميكروفون مرة أخرى.",
+    liveCallPlayAudio: "تشغيل صوت الطرف الآخر",
+    liveCallNoAudio:
+      "اسمح بالميكروفون وانتظر حتى يظهر متصل. إن استمر الفشل يلزم خادم TURN.",
+    messageNotFound: "الرسالة لم تعد موجودة",
+    chatSyncFailed:
+      "تعذر تحديث الشات من السيرفر. تحقق من الاتصال ثم أبقِ الصفحة مفتوحة.",
   },
   en: {
     teachers: "Teachers",
@@ -372,14 +390,24 @@ export const dictionaries: Record<Lang, Dictionary> = {
     lessonSavedNone: "Nothing new to save (or chat is empty)",
     lessonDownloadEmpty: "Nothing saved locally today — save lines or Save all first",
     lessonDownloadOk: "Lesson archive downloaded (text + audio with English names)",
-    startLiveCall: "Start live lesson",
+    startLiveCall: "Start lesson",
     joinLiveCall: "Join lesson",
     endLiveCall: "End lesson",
     liveCallHint:
-      "Trial: you hear each other instantly. After you pause, text and translation appear in the columns. Production stays on v1 until you approve publishing this experiment.",
+      "Only the sheikh taps Start lesson. Then the student taps Allow microphone. The old chat stays.",
     liveCallConnecting: "Connecting… allow the microphone",
-    liveCallNeedPeer: "Waiting for the other person to join…",
-    liveCallLive: "Live — speak; captions appear after a short pause",
+    liveCallNeedPeer: "Waiting for the student… keep their chat page open",
+    liveCallLive: "Connected — you should hear each other and can speak",
     liveCallMicError: "Could not open the microphone. Allow it in browser settings.",
+    liveCallStudentWait: "Wait until the sheikh starts the lesson from his device",
+    liveCallSheikhStarted: "The sheikh started the lesson — tap to allow the microphone",
+    liveCallAllowMic: "Allow microphone to hear the sheikh",
+    liveCallJoinRetry: "Could not join. Tap Allow microphone again.",
+    liveCallPlayAudio: "Play the other person’s audio",
+    liveCallNoAudio:
+      "Allow the microphone and wait until Connected appears. If it still fails, a TURN server is required.",
+    messageNotFound: "That message is no longer available",
+    chatSyncFailed:
+      "Could not refresh the chat from the server. Check the connection and keep this page open.",
   },
 };

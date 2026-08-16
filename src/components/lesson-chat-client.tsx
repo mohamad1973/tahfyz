@@ -11,7 +11,9 @@ import {
   fetchChatMessagesAction,
   sendChatMessageAction,
   speakTranslatedMessageAction,
-  transcribeChatAudioAction,
+  transcribeChatAudioBytesAction,
+  translateChatMessageAction,
+  patchChatMessageAudioAction,
 } from "@/lib/actions";
 import { useI18n } from "@/lib/i18n/provider";
 import {
@@ -89,6 +91,49 @@ function messagesFingerprint(list: ChatMessage[]) {
     .join("\n");
 }
 
+function mergeIncomingMessages(
+  prev: ChatMessage[],
+  incoming: ChatMessage[],
+): ChatMessage[] {
+  const prevById = new Map(prev.map((m) => [m.id, m]));
+  const merged = incoming.map((m) => {
+    const old = prevById.get(m.id);
+    if (!old) return m;
+    return {
+      ...m,
+      audioUrl: m.audioUrl || old.audioUrl,
+      translatedAudioUrl: m.translatedAudioUrl || old.translatedAudioUrl,
+      translatedText: m.translatedText.trim()
+        ? m.translatedText
+        : old.translatedText,
+    };
+  });
+  const incomingIds = new Set(incoming.map((m) => m.id));
+  const extras = prev.filter((m) => !incomingIds.has(m.id));
+  if (!extras.length) return merged;
+  return [...merged, ...extras];
+}
+
+function upsertChatMessage(
+  prev: ChatMessage[],
+  message: ChatMessage,
+): ChatMessage[] {
+  const index = prev.findIndex((m) => m.id === message.id);
+  if (index < 0) return [...prev, message];
+  const copy = [...prev];
+  const old = copy[index];
+  copy[index] = {
+    ...old,
+    ...message,
+    audioUrl: message.audioUrl || old.audioUrl,
+    translatedAudioUrl: message.translatedAudioUrl || old.translatedAudioUrl,
+    translatedText: message.translatedText.trim()
+      ? message.translatedText
+      : old.translatedText,
+  };
+  return copy;
+}
+
 function speakWithBrowser(text: string, lang: ChatLang): boolean {
   if (typeof window === "undefined") return false;
   const synth = window.speechSynthesis;
@@ -164,6 +209,13 @@ function MessageCard({
   const [ttsUrl, setTtsUrl] = useState(translatedAudioUrl);
   const ttsRef = useRef<HTMLAudioElement | null>(null);
   const playWhenReadyRef = useRef(false);
+  const hasTranslation = Boolean(translatedText.trim());
+  const showMutedOriginal =
+    hasTranslation &&
+    Boolean(originalText.trim()) &&
+    originalText.trim() !== translatedText.trim();
+  const mainText = hasTranslation ? translatedText : originalText;
+  const mainDir = hasTranslation ? paneDir : originalDir;
 
   useEffect(() => {
     setTtsUrl(translatedAudioUrl);
@@ -218,7 +270,7 @@ function MessageCard({
     <div className={cardClass}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1 space-y-1">
-          {originalText ? (
+          {showMutedOriginal ? (
             <p
               className="whitespace-pre-wrap text-xs text-ink-muted"
               dir={originalDir}
@@ -226,12 +278,14 @@ function MessageCard({
               {originalText}
             </p>
           ) : null}
-          <p
-            className="whitespace-pre-wrap text-sm font-medium text-ink"
-            dir={paneDir}
-          >
-            {translatedText}
-          </p>
+          {mainText.trim() ? (
+            <p
+              className="whitespace-pre-wrap text-sm font-medium text-ink"
+              dir={mainDir}
+            >
+              {mainText}
+            </p>
+          ) : null}
         </div>
         <div className="flex shrink-0 flex-col gap-1">
           <button
@@ -608,6 +662,8 @@ function ChatPane({
 
 export function LessonChatClient({
   threadId,
+  currentUserId,
+  role,
   peerName,
 }: {
   threadId: string;
@@ -635,6 +691,7 @@ export function LessonChatClient({
   );
   const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set());
   const [localNote, setLocalNote] = useState<string | null>(null);
+  const [pollError, setPollError] = useState<string | null>(null);
 
   const recognitionRef = useRef<{
     abort?: () => void;
@@ -653,15 +710,18 @@ export function LessonChatClient({
   const speechDelayTimerRef = useRef<number | undefined>(undefined);
   const recorderMimeRef = useRef("audio/webm;codecs=opus");
   const lastTalkSideRef = useRef<ChatLang>("ar");
+  const pollFailRef = useRef(0);
 
-  const leftMessages = useMemo(
-    () => messages.filter((m) => m.originalLang === "en").sort(byNewest),
-    [messages],
-  );
-  const rightMessages = useMemo(
-    () => messages.filter((m) => m.originalLang === "ar").sort(byNewest),
-    [messages],
-  );
+  const leftMessages = useMemo(() => {
+    const mine = messages.filter((m) => m.senderId === currentUserId);
+    const theirs = messages.filter((m) => m.senderId !== currentUserId);
+    return (role === "student" ? mine : theirs).sort(byNewest);
+  }, [currentUserId, messages, role]);
+  const rightMessages = useMemo(() => {
+    const mine = messages.filter((m) => m.senderId === currentUserId);
+    const theirs = messages.filter((m) => m.senderId !== currentUserId);
+    return (role === "teacher" ? mine : theirs).sort(byNewest);
+  }, [currentUserId, messages, role]);
   const leftPending = pending.filter((p) => p.originalLang === "en");
   const rightPending = pending.filter((p) => p.originalLang === "ar");
 
@@ -699,9 +759,25 @@ export function LessonChatClient({
   }, []);
 
   function appendMessage(message: ChatMessage) {
-    setMessages((prev) =>
-      prev.some((m) => m.id === message.id) ? prev : [...prev, message],
-    );
+    setMessages((prev) => upsertChatMessage(prev, message));
+  }
+
+  function mergeMessage(message: ChatMessage) {
+    setMessages((prev) => upsertChatMessage(prev, message));
+  }
+
+  function audioExtFromType(type: string): "mp4" | "ogg" | "webm" {
+    if (type.includes("mp4")) return "mp4";
+    if (type.includes("ogg")) return "ogg";
+    return "webm";
+  }
+
+  function blobFileForAudio(blob: Blob, name: string): File {
+    const fullType =
+      blob.type || recorderMimeRef.current || "audio/webm;codecs=opus";
+    const baseType = fullType.split(";")[0].trim() || "audio/webm";
+    const ext = audioExtFromType(baseType);
+    return new File([blob], `${name}.${ext}`, { type: baseType });
   }
 
   function stopMediaTracks() {
@@ -740,22 +816,13 @@ export function LessonChatClient({
         lang === "ar" ? "التسجيل قصير أو فارغ" : "Recording too short or empty",
       );
     }
-    const fullType =
-      blob.type || recorderMimeRef.current || "audio/webm;codecs=opus";
-    const baseType = fullType.split(";")[0].trim() || "audio/webm";
-    const ext = baseType.includes("mp4")
-      ? "mp4"
-      : baseType.includes("ogg")
-        ? "ogg"
-        : "webm";
+    const file = blobFileForAudio(blob, "rec");
+    const ext = audioExtFromType(file.type);
     const pathname = `chat/${threadId}/rec-${Date.now()}.${ext}`;
-    // Prefer base MIME for storage Content-Type (browsers play better)
-    const uploadType = baseType;
-    const file = new File([blob], `rec.${ext}`, { type: uploadType });
     const result = await upload(pathname, file, {
       access: "public",
       handleUploadUrl: "/api/blob/upload",
-      contentType: uploadType,
+      contentType: file.type,
       clientPayload: JSON.stringify({
         kind: "chat-audio",
         threadId,
@@ -765,11 +832,23 @@ export function LessonChatClient({
     return result.url;
   }
 
+  async function transcribeAudioBlob(
+    blob: Blob,
+    originalLang: ChatLang,
+  ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+    const form = new FormData();
+    form.set("threadId", threadId);
+    form.set("originalLang", originalLang);
+    form.set("file", blobFileForAudio(blob, "rec"));
+    return transcribeChatAudioBytesAction(form);
+  }
+
   function sendFinal(
     text: string,
     originalLang: ChatLang,
     audioBlob: Blob | null,
     audioUrlReady?: string,
+    uploadInFlight?: Promise<string | null>,
   ) {
     const payload = collapseRepeatedSpeech(text.trim());
     if (!payload) {
@@ -795,42 +874,92 @@ export function LessonChatClient({
 
     sendQueueRef.current = sendQueueRef.current.then(async () => {
       setError(null);
-      let audioUrl = audioUrlReady?.trim() || undefined;
-      if (!audioUrl && audioBlob && audioBlob.size >= 500) {
-        try {
-          audioUrl = await uploadAudioBlob(audioBlob);
-        } catch (e) {
-          setError(
-            lang === "ar"
-              ? `فشل رفع الصوت: ${e instanceof Error ? e.message : "خطأ"}`
-              : `Audio upload failed: ${e instanceof Error ? e.message : "error"}`,
-          );
+      const audioUrl = audioUrlReady?.trim() || undefined;
+      try {
+        const res = await sendChatMessageAction({
+          threadId,
+          text: payload,
+          originalLang,
+          audioUrl,
+        });
+        setPending((prev) => prev.filter((p) => p.id !== tempId));
+        if (!res.ok) {
+          setError(res.error);
+          setComposer(originalLang, payload);
+          return;
         }
-      } else if (
-        !audioUrl &&
-        audioBlob &&
-        audioBlob.size > 0 &&
-        audioBlob.size < 500
-      ) {
+        appendMessage(res.message);
+
+        const messageId = res.message.id;
+
+        void (async () => {
+          try {
+            let url = audioUrl;
+            if (!url && uploadInFlight) {
+              url = (await uploadInFlight) || undefined;
+              if (!url) {
+                setError(
+                  lang === "ar"
+                    ? "فشل رفع الصوت — النص وصل والملف سيُعاد عند الإرسال التالي"
+                    : "Audio upload failed — the text was sent",
+                );
+                return;
+              }
+            } else if (!url && audioBlob && audioBlob.size >= 500) {
+              url = await uploadAudioBlob(audioBlob);
+            } else if (
+              !url &&
+              audioBlob &&
+              audioBlob.size > 0 &&
+              audioBlob.size < 500
+            ) {
+              setError(
+                lang === "ar"
+                  ? "التسجيل قصير جداً — سجّل مدة أطول أثناء الكلام"
+                  : "Recording too short — record longer while speaking",
+              );
+              return;
+            }
+            if (!url || url === res.message.audioUrl) return;
+            const patched = await patchChatMessageAudioAction({
+              messageId,
+              audioUrl: url,
+            });
+            if (patched.ok) mergeMessage(patched.message);
+          } catch (e) {
+            setError(
+              lang === "ar"
+                ? `فشل رفع الصوت: ${e instanceof Error ? e.message : "خطأ"}`
+                : `Audio upload failed: ${e instanceof Error ? e.message : "error"}`,
+            );
+          }
+        })();
+
+        void (async () => {
+          const translated = await translateChatMessageAction({ messageId });
+          if (!translated.ok) return;
+          mergeMessage(translated.message);
+          const spoken = translated.message.translatedText.trim();
+          if (!spoken || spoken === translated.message.originalText.trim()) {
+            return;
+          }
+          const speech = await speakTranslatedMessageAction({ messageId });
+          if (speech.ok) {
+            mergeMessage({
+              ...translated.message,
+              translatedAudioUrl: speech.url,
+            });
+          }
+        })();
+      } catch (e) {
+        setPending((prev) => prev.filter((p) => p.id !== tempId));
+        setComposer(originalLang, payload);
         setError(
           lang === "ar"
-            ? "التسجيل قصير جداً — سجّل مدة أطول أثناء الكلام"
-            : "Recording too short — record longer while speaking",
+            ? `فشل الإرسال: ${e instanceof Error ? e.message : "خطأ"}`
+            : `Send failed: ${e instanceof Error ? e.message : "error"}`,
         );
       }
-      const res = await sendChatMessageAction({
-        threadId,
-        text: payload,
-        originalLang,
-        audioUrl,
-      });
-      setPending((prev) => prev.filter((p) => p.id !== tempId));
-      if (!res.ok) {
-        setError(res.error);
-        setComposer(originalLang, payload);
-        return;
-      }
-      appendMessage(res.message);
     });
   }
 
@@ -847,19 +976,17 @@ export function LessonChatClient({
     setError(null);
     setTranscribingSide(side);
     setInterim(t.transcribingAudio);
+    const uploadPromise: Promise<string | null> = uploadAudioBlob(audioBlob)
+      .then((url) => url)
+      .catch(() => null);
     try {
-      const audioUrl = await uploadAudioBlob(audioBlob);
-      const stt = await transcribeChatAudioAction({
-        threadId,
-        audioUrl,
-        originalLang: side,
-      });
+      const stt = await transcribeAudioBlob(audioBlob, side);
       setInterim("");
       setTranscribingSide(null);
       if (stt.ok && stt.text.trim()) {
         const text = collapseRepeatedSpeech(stt.text);
         setComposer(side, text);
-        sendFinal(text, side, null, audioUrl);
+        sendFinal(text, side, null, undefined, uploadPromise);
         return;
       }
       setPendingAudio({ originalLang: side, blob: audioBlob });
@@ -1086,24 +1213,38 @@ export function LessonChatClient({
   useEffect(() => {
     start(async () => {
       const res = await fetchChatMessagesAction(threadId);
-      if (res.ok) setMessages(res.messages);
+      if (res.ok) {
+        pollFailRef.current = 0;
+        setPollError(null);
+        setMessages(res.messages);
+        return;
+      }
+      pollFailRef.current = 2;
+      setPollError(t.chatSyncFailed);
     });
-  }, [threadId]);
+  }, [t.chatSyncFailed, threadId]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
       void (async () => {
         const res = await fetchChatMessagesAction(threadId);
-        if (!res.ok) return;
-        setMessages((prev) =>
-          messagesFingerprint(prev) === messagesFingerprint(res.messages)
+        if (!res.ok) {
+          pollFailRef.current += 1;
+          if (pollFailRef.current >= 2) setPollError(t.chatSyncFailed);
+          return;
+        }
+        pollFailRef.current = 0;
+        setPollError(null);
+        setMessages((prev) => {
+          const merged = mergeIncomingMessages(prev, res.messages);
+          return messagesFingerprint(prev) === messagesFingerprint(merged)
             ? prev
-            : res.messages,
-        );
+            : merged;
+        });
       })();
     }, 1000);
     return () => window.clearInterval(id);
-  }, [threadId]);
+  }, [t.chatSyncFailed, threadId]);
 
   useEffect(() => {
     return () => {
@@ -1182,6 +1323,10 @@ export function LessonChatClient({
     start(async () => {
       const res = await deleteChatMessageAction(messageId);
       if (!res.ok) {
+        if (res.error === "Message not found") {
+          setMessages((prev) => prev.filter((m) => m.id !== messageId));
+          return;
+        }
         setError(res.error);
         return;
       }
@@ -1197,8 +1342,13 @@ export function LessonChatClient({
           m.id === messageId ? { ...m, translatedAudioUrl: res.url } : m,
         ),
       );
+      return res;
     }
-    return res;
+    return {
+      ok: false as const,
+      error:
+        res.error === "Message not found" ? t.messageNotFound : res.error,
+    };
   }
 
   const holdHint = touchUi ? t.tapToRecord : t.holdToRecord;
@@ -1231,6 +1381,9 @@ export function LessonChatClient({
             <p className="mt-1 text-xs text-olive">{localNote}</p>
           )}
           {error && <p className="mt-1 text-xs text-danger">{error}</p>}
+          {pollError && (
+            <p className="mt-1 text-xs text-danger">{pollError}</p>
+          )}
           {showMicRetry && (
             <button
               type="button"

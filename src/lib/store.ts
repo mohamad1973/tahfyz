@@ -722,6 +722,41 @@ export async function setChatMessageTranslatedAudioUrl(
   return toChatMessage(row);
 }
 
+export async function patchChatMessage(
+  id: string,
+  patch: {
+    audioUrl?: string | null;
+    translatedText?: string;
+    translatedLang?: "en" | "ar";
+    translatedAudioUrl?: string | null;
+  },
+): Promise<ChatMessage | null> {
+  const data: {
+    audioUrl?: string | null;
+    translatedText?: string;
+    translatedLang?: string;
+    translatedAudioUrl?: string | null;
+  } = {};
+  if (patch.audioUrl !== undefined) data.audioUrl = patch.audioUrl;
+  if (patch.translatedText !== undefined) data.translatedText = patch.translatedText;
+  if (patch.translatedLang !== undefined) data.translatedLang = patch.translatedLang;
+  if (patch.translatedAudioUrl !== undefined) {
+    data.translatedAudioUrl = patch.translatedAudioUrl;
+  }
+  if (!Object.keys(data).length) {
+    return getChatMessageById(id);
+  }
+  try {
+    const row = await prisma.chatMessage.update({
+      where: { id },
+      data,
+    });
+    return toChatMessage(row);
+  } catch {
+    return null;
+  }
+}
+
 export async function deleteChatMessage(id: string): Promise<boolean> {
   const row = await prisma.chatMessage.findUnique({ where: { id } });
   if (!row) return false;
